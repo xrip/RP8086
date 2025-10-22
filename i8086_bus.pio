@@ -1,0 +1,113 @@
+.program i8086_bus
+.side_set 1 opt
+
+; ============================================================================
+; Контроллер шины i8086 в minimal mode
+; - 16-битная шина данных (AD0-AD15)
+; - 20-битная адресация (AD0-AD15 + A16-A19)
+; - Обработка циклов RD/WR
+; - Управление READY для wait states
+; ============================================================================
+
+; Назначение GPIO пинов
+.define public AD_BUS_PINS 0    ; Начало шины AD0-AD15
+
+.define ALE_PIN            20   ; Address Latch Enable
+.define RD_PIN             21   ; Read strobe (активный LOW)
+.define WR_PIN             22   ; Write strobe (активный LOW)
+.define MIO_PIN            23   ; Memory/IO select (1=память, 0=I/O) - захватывается но не проверяется в PIO
+.define BHE_PIN            24   ; Bus High Enable - захватывается но не проверяется в PIO
+
+.define public READY_PIN   28   ; Wait state control (0=ready, 1=wait)
+
+; Конфигурация state machine:
+; - in_base = 0 (захватывает GPIO 0-24)
+; - out_base = 0 (управляет GPIO 0-15 для шины данных)
+; - sideset = READY_PIN (0=готов, 1=ждать)
+
+.wrap_target
+wait_ALE:
+    wait 1 gpio ALE_PIN             ; Ждать начала цикла шины (T1: ALE=HIGH)
+
+capture_address:
+    in pins, 25                     ; Захватить GPIO 0-24 (адрес + управляющие сигналы)
+                                    ; ISR[24:0] = BHE, M/IO, WR, RD, ALE, A19-A16, AD15-AD0
+    push                            ; Отправить в FIFO для обработки ARM
+    wait 0 gpio ALE_PIN     side 1  ; Дождаться начала T2 (ALE=LOW) и поднять READY=1 (wait state)
+                                    ; CPU семплирует READY в конце T2 и увидит wait state
+
+; Определить тип цикла (WR или RD) проверкой GPIO 21/22
+wait_strobe:
+    mov osr, pins                   ; Прочитать GPIO (1 такт)
+    out null, 21                    ; Выбросить GPIO 0-20 (1 такт)
+    out x, 1                        ; X = GPIO 21 (RD) (1 такт)
+    jmp !x RD_cycle                 ; Если RD=0 (1 такт)
+
+    out x, 1                        ; X = GPIO 22 (WR) (1 такт)
+    jmp !x WR_cycle                 ; Если WR=0 (1 такт)
+
+    jmp wait_strobe                 ; Polling (1 такт)
+
+; ============================================================================
+; Цикл записи: CPU записывает данные в память/IO
+; ============================================================================
+WR_cycle:
+    in pins, 16                     ; Захватить данные с AD0-AD15
+    push                            ; Отправить данные ARM
+    irq 0                side 0 [3] ; Прерывание записи (ARM обработает достаточно быстро), опустить READY=0 (продолжить)
+    wait 1 gpio WR_PIN              ; Дождаться WR=HIGH (конец цикла)
+    jmp wait_ALE                    ; Следующий цикл
+
+; ============================================================================
+; Цикл чтения: CPU читает данные из памяти/IO
+; ============================================================================
+RD_cycle:
+    irq 1                           ; Прерывание чтения
+    mov osr, !null                  ; Заполнить OSR единицами
+    out pindirs, 16                 ; Установить AD0-AD15 как выходы
+
+    pull block                      ; Дождаться данных от ARM (блокирующее ожидание)
+    out pins, 16 side 0             ; Выдать данные на AD0-AD15, опустить READY=0 (данные готовы)
+    wait 1 gpio RD_PIN              ; Дождаться RD=HIGH (конец цикла чтения)
+
+cleanup:
+    mov osr, null                   ; Заполнить OSR нулями
+    out pindirs, 16                 ; Вернуть AD0-AD15 в режим входов (Z-состояние)
+.wrap
+
+
+% c-sdk {
+
+void i8086_bus_program_init(PIO pio, uint sm, uint offset)
+{
+    pio_sm_config cfg = i8086_bus_program_get_default_config(offset);
+
+    // Настройка направления сдвигов
+    sm_config_set_in_shift(&cfg, false, false, 32);   // IN: сдвиг влево, без autopush
+    sm_config_set_out_shift(&cfg, true, false, 32);   // OUT: сдвиг вправо, без autopull
+
+    // Назначение пинов
+    sm_config_set_in_pins(&cfg, i8086_bus_AD_BUS_PINS);      // IN base = GPIO 0
+    sm_config_set_out_pins(&cfg, i8086_bus_AD_BUS_PINS, 16); // OUT base = GPIO 0, 16 пинов
+    sm_config_set_sideset_pins(&cfg, i8086_bus_READY_PIN);   // SIDESET = GPIO 28
+
+    // Инициализация GPIO для управления через PIO
+    // AD0-AD15: двунаправленная шина данных (стартуют как входы)
+    for (int i = 0; i < 16; i++) {
+        pio_gpio_init(pio, i8086_bus_AD_BUS_PINS + i);
+    }
+
+    // READY: выход (управляется PIO)
+    pio_gpio_init(pio, i8086_bus_READY_PIN);
+
+    // Установка направлений пинов
+    pio_sm_set_consecutive_pindirs(pio, sm, i8086_bus_AD_BUS_PINS, 16, false);  // AD0-AD15: входы
+    pio_sm_set_consecutive_pindirs(pio, sm, i8086_bus_READY_PIN, 1, true);      // READY: выход
+
+    // Установить READY=HIGH до старта (не готовы, вставить wait states)
+    gpio_put(i8086_bus_READY_PIN, true);
+
+    // Инициализировать и запустить state machine
+    pio_sm_init(pio, sm, offset, &cfg);
+}
+%}
