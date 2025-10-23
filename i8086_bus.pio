@@ -27,14 +27,14 @@
 
 .wrap_target
 wait_ALE:
-    wait 1 gpio ALE_PIN             ; Ждать начала цикла шины (T1: ALE=HIGH)
+    wait 1 gpio ALE_PIN            ; Ждать начала цикла шины (T1: ALE=HIGH)
 
 capture_address:
+    wait 0 gpio ALE_PIN     side 0  ; Дождаться начала T2 (ALE=LOW) и поднять READY=0 (wait state)
+                                    ; CPU семплирует READY в конце T2 и увидит wait state
     in pins, 25                     ; Захватить GPIO 0-24 (адрес + управляющие сигналы)
                                     ; ISR[24:0] = BHE, M/IO, WR, RD, ALE, A19-A16, AD15-AD0
     push                            ; Отправить в FIFO для обработки ARM
-    wait 0 gpio ALE_PIN     side 1  ; Дождаться начала T2 (ALE=LOW) и поднять READY=1 (wait state)
-                                    ; CPU семплирует READY в конце T2 и увидит wait state
 
 ; Определить тип цикла (WR или RD) проверкой GPIO 21/22
 wait_strobe:
@@ -54,7 +54,7 @@ wait_strobe:
 WR_cycle:
     in pins, 16                     ; Захватить данные с AD0-AD15
     push                            ; Отправить данные ARM
-    irq 0                side 0 [3] ; Прерывание записи (ARM обработает достаточно быстро), опустить READY=0 (продолжить)
+    irq 0                   side 1  ; Прерывание записи (ARM обработает достаточно быстро), опустить READY=0 (продолжить)
     wait 1 gpio WR_PIN              ; Дождаться WR=HIGH (конец цикла)
     jmp wait_ALE                    ; Следующий цикл
 
@@ -67,12 +67,12 @@ RD_cycle:
     out pindirs, 16                 ; Установить AD0-AD15 как выходы
 
     pull block                      ; Дождаться данных от ARM (блокирующее ожидание)
-    out pins, 16 side 0             ; Выдать данные на AD0-AD15, опустить READY=0 (данные готовы)
+    out pins, 16             side 1 ; Выдать данные на AD0-AD15, опустить READY=0 (данные готовы)
     wait 1 gpio RD_PIN              ; Дождаться RD=HIGH (конец цикла чтения)
 
 cleanup:
-    mov osr, null                   ; Заполнить OSR нулями
-    out pindirs, 16                 ; Вернуть AD0-AD15 в режим входов (Z-состояние)
+    mov osr, null                [7]; Заполнить OSR нулями
+    out pindirs, 16              [7]; Вернуть AD0-AD15 в режим входов (Z-состояние)
 .wrap
 
 

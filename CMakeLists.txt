@@ -20,7 +20,24 @@ add_executable(${PROJECT_NAME}
         cpu_bus.c
 )
 
-pico_generate_pio_header(${PROJECT_NAME} ${CMAKE_CURRENT_LIST_DIR}/i8086_bus.pio)
+pico_define_boot_stage2(slower_boot ${PICO_DEFAULT_BOOT_STAGE2_FILE})
+target_compile_definitions(slower_boot PRIVATE PICO_FLASH_SPI_CLKDIV=4)
+pico_set_boot_stage2(${PROJECT_NAME} slower_boot)
+
+# 16megs of flash on purple pico clones
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+        PICO_FLASH_SIZE_BYTES=16777216
+        #        PICO_PRINTF_ALWAYS_INCLUDED=0
+        #        PICO_STACK_SIZE=1024
+        #        PICO_HEAP_SIZE=1024
+        #PICO_PANIC_FUNCTION=
+)
+
+
+pico_generate_pio_header(${PROJECT_NAME}
+        ${CMAKE_CURRENT_LIST_DIR}/i8086_bus.pio
+        OUTPUT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/
+)
 
 pico_enable_stdio_uart(${PROJECT_NAME} 0)
 pico_enable_stdio_usb(${PROJECT_NAME} 1)
@@ -31,7 +48,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
         pico_runtime
-        pico_stdio_usb
+        pico_stdio
         hardware_pio
         hardware_pwm
 )

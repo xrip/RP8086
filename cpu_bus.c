@@ -1,5 +1,8 @@
 #include "i8086_bus.pio.h"
 #include "cpu_bus.h"
+
+#include <stdio.h>
+
 #include "config.h"
 #include "bios.h"
 
@@ -89,7 +92,10 @@ void __time_critical_func(bus_write_handler)() {
         // Second FIFO entry: data from AD0-AD15
         const uint16_t data = pio_sm_get_blocking(BUS_CTRL_PIO, BUS_CTRL_SM) & 0xFFFF;
 
-        i8086_write(bus.address, data, bus.m_io);
+        printf("Write %05x : %x m_io %d\n", bus.address, data, bus.m_io);
+
+
+        // i8086_write(bus.address, data, bus.m_io);
     }
 
     pio_interrupt_clear(BUS_CTRL_PIO, 0);
@@ -102,8 +108,11 @@ void __time_critical_func(bus_read_handler)() {
         const bus_info_t bus = parse_bus_state(bus_state);
 
         // Read data and send back to PIO
-        const uint16_t data = i8086_read(bus.address, bus.m_io);
+        // const uint16_t data = bus.address & 2 ? 0xF4F4 : 0xFEEB;
+        const uint16_t data = i8086_read(0xF0000 | bus.address, bus.m_io);
         pio_sm_put_blocking(BUS_CTRL_PIO, BUS_CTRL_SM, data);
+
+        printf("Read %x : %x mio %x\n", bus.address, data, bus.m_io);
     }
 
     pio_interrupt_clear(BUS_CTRL_PIO, 1);

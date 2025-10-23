@@ -44,22 +44,9 @@ void reset_cpu(void)
     gpio_set_dir(RESET_PIN, GPIO_OUT);
 
     // Assert RESET (active LOW) for minimum 4 clock cycles (use 10 for safety)
+    gpio_put(RESET_PIN, 1);
+    busy_wait_ms(10);
     gpio_put(RESET_PIN, 0);
 
-    constexpr uint32_t clock_hz = I8086_CLOCK_SPEED;
-    if (clock_hz < 1000) {
-        sleep_ms((10 * 1000) / clock_hz + 1);
-    } else {
-        sleep_us((10 * 1000000) / clock_hz + 1);
-    }
 
-    // Release RESET (HIGH) - CPU starts from FFFF0h
-    gpio_put(RESET_PIN, 1);
-
-    // Wait for CPU to stabilize
-    if (clock_hz < 1000) {
-        sleep_ms((5 * 1000) / clock_hz + 1);
-    } else {
-        sleep_us((5 * 1000000) / clock_hz + 1);
-    }
 }
