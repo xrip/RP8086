@@ -24,10 +24,10 @@ void start_cpu_clock(void)
 
     const uint32_t level = ((wrap + 1) * duty_percent) / 100;
 
-    gpio_set_function(I8086_CLOCK_PIN, GPIO_FUNC_PWM);
+    gpio_set_function(CLOCK_PIN, GPIO_FUNC_PWM);
 
-    const uint slice_num = pwm_gpio_to_slice_num(I8086_CLOCK_PIN);
-    const uint channel = pwm_gpio_to_channel(I8086_CLOCK_PIN);
+    const uint slice_num = pwm_gpio_to_slice_num(CLOCK_PIN);
+    const uint channel = pwm_gpio_to_channel(CLOCK_PIN);
 
     pwm_config config = pwm_get_default_config();
     pwm_config_set_clkdiv_int(&config, div);
@@ -47,6 +47,6 @@ void reset_cpu(void)
     gpio_put(RESET_PIN, 1);
     busy_wait_ms(10);
     gpio_put(RESET_PIN, 0);
-
-
 }
+
+

@@ -49,6 +49,45 @@ The project uses a unique two-layer architecture that splits bus handling betwee
 - All handlers use `__time_critical_func` macro to run from RAM
 - Interrupts run at `PICO_HIGHEST_IRQ_PRIORITY`
 
+### Multicore Architecture
+
+The project uses RP2040's dual-core capability for interrupt handling:
+
+**Core0 (Main):**
+- Runs main loop with `__wfi()` (Wait For Interrupt)
+- Services PIO interrupts (bus read/write via IRQ0/IRQ1)
+- Handles USB serial communication
+- Processes user commands (reset, memory dump, etc.)
+
+**Core1 (IRQ Generator):**
+- Runs `core1_irq_generator()` in infinite loop
+- Generates IRQ0 every ~54.925ms (18.2 Hz) using `absolute_time_t` timing
+- Sets INTR=HIGH when IRQ pending
+- **Benefits**: Offloads timing-critical interrupt generation from Core0
+- **Synchronization**: Uses `volatile bool irq_pending` flag
+- **IBM PC compatible**: Matches standard 8253/8254 PIT frequency (1.193182 MHz / 65536)
+
+**INTA Protocol (GPIO Interrupt on Core0):**
+- `inta_gpio_callback()` handles both edges of INTA signal
+- **First INTA (falling edge)**:
+  1. Takes manual control of READY pin (wait state)
+  2. Stops PIO SM to prevent bus conflicts
+  3. Clears FIFO and restarts SM
+- **Second INTA (falling edge)**:
+  1. Switches AD0-AD7 from PIO to GPIO output
+  2. Outputs interrupt vector byte (0x08 for IRQ0)
+- **Second INTA completion (rising edge)**:
+  1. Returns AD0-AD7 to PIO control
+  2. Sets READY=1, then returns READY to PIO
+  3. Restarts PIO SM
+  4. Resets INTA counter
+
+**Why GPIO interrupt for INTA (not PIO)?**
+- PIO instruction memory limited (24/32 used)
+- INTA is rare event (<1% of bus cycles)
+- GPIO interrupt latency acceptable (~1µs)
+- Allows complex multi-step protocol without PIO code
+
 ### Bus Protocol Flow
 
 **Read Cycle:**
@@ -76,6 +115,9 @@ Critical bus signals are hardcoded in `i8086_bus.pio`:
 - GPIO 22: WR (Write strobe, active LOW)
 - GPIO 23: M/IO (Memory/IO select: 1=memory, 0=I/O)
 - GPIO 24: BHE (Bus High Enable)
+- GPIO 25: INTR (Interrupt request output to i8086, active HIGH)
+- GPIO 26: INTA (Interrupt acknowledge input from i8086, active LOW)
+- GPIO 27: RESET (Reset output, active LOW)
 - GPIO 28: READY (Wait state control output to CPU)
 - GPIO 29: CLK (Clock output to CPU)
 
@@ -117,12 +159,23 @@ Critical bus signals are hardcoded in `i8086_bus.pio`:
 - System clock (400 MHz)
 - i8086 clock frequency (100 Hz for debug, changeable to 5 MHz)
 - PIO and IRQ settings
+- INTR/INTA/READY pin definitions
+
+**pic.c/h** - 8259A PIC emulation:
+- `pic_init()`: Initializes interrupt controller, sets up GPIO interrupt for INTA
+- `inta_gpio_callback()`: **Critical interrupt handler** for INTA protocol
+  - First INTA: Takes manual control of READY (wait state), stops PIO SM, restarts it
+  - Second INTA: Outputs interrupt vector (0x08 for IRQ0) on AD0-AD7
+  - Returns READY and AD0-AD7 control back to PIO after completion
+- `core1_irq_generator()`: Runs on Core1, generates IRQ0 every ~54.925ms (18.2 Hz, IBM PC standard)
+- **Why GPIO interrupt instead of PIO**: INTA is rare event, doesn't need hardware speed
+- **READY signal control**: Ensures reliable SM stop/restart without bus conflicts
 
 **bios.h** - GlaBIOS ROM image (8KB array)
 
 ## Current Implementation Status
 
-**Implemented (Фаза 1 complete + performance optimizations):**
+**Implemented (Фаза 1 complete + performance optimizations + interrupts):**
 - ✅ Clock generation on GPIO29 (PWM, 100 Hz debug mode, 33% duty)
 - ✅ RESET sequence on GPIO27
 - ✅ Highly optimized PIO bus controller for i8086 (16-bit data bus, 20-bit address)
@@ -131,12 +184,15 @@ Critical bus signals are hardcoded in `i8086_bus.pio`:
 - ✅ Memory vs I/O address decoding (M/IO signal)
 - ✅ **Ultra-fast 16-bit bus operations** via aligned memory access
 - ✅ Test I/O port: 0x00 (Fibonacci generator)
+- ✅ **8259A PIC emulation** with INTR/INTA handling (GPIO interrupt + multicore)
+- ✅ **READY signal control** during INTA for reliable bus operations
+- ✅ **Core1 IRQ generator** (18.2 Hz timer, IBM PC compatible)
 - 🚀 **40-60% performance boost** with address alignment optimization
 
 **Not yet implemented:**
 - ⚠️ BHE handling (currently BHE is captured but unused - i8086 always reads 16 bits)
-- ⚠️ INTR/INTA interrupt handling
-- ⚠️ Additional I/O devices (UART, PIT, PIC)
+- ⚠️ Additional I/O devices (UART, PIT)
+- ⚠️ Full 8259A register interface (ICW1-ICW4, OCW1-OCW3)
 - ⚠️ DMA controller
 
 ## Development Guidelines
@@ -188,10 +244,16 @@ Edit `i8086_bus.pio` carefully - PIO assembly is timing-sensitive:
 ```c
 start_cpu_clock();   // 1. Start clock first
 cpu_bus_init();      // 2. Initialize PIO and handlers
-reset_cpu();         // 3. Release i8086 from reset last
+pic_init();          // 3. Initialize interrupt controller, start Core1 IRQ generator
+reset_cpu();         // 4. Release i8086 from reset last
 ```
 
 Wrong order = i8086 starts before PIO is ready = bus conflicts!
+
+**Important notes:**
+- `pic_init()` must be called AFTER `cpu_bus_init()` (needs BUS_CTRL_PIO/BUS_CTRL_SM)
+- `pic_init()` launches Core1, so call it BEFORE `reset_cpu()` (interrupts ready)
+- Core1 starts generating IRQ0 immediately, but INTR stays LOW until after reset
 
 ### Memory Map
 
