@@ -14,7 +14,8 @@ extern uint8_t videoram[] __attribute__((aligned(4)));
 // Core1: Генератор IRQ0 каждые ~54.925ms (18.2 Hz, как в IBM PC)
 // ============================================================================
 [[noreturn]] void core1_irq_generator(void) {
-    constexpr uint32_t timer_interval = 1500; // 549ms на 500Khz, 54.925ms на 5Mhz
+    busy_wait_ms(500);
+    constexpr uint32_t timer_interval = 549; // 549ms на 500Khz, 54.925ms на 5Mhz
     static bool irq_pending = false;
 
     absolute_time_t next_irq = get_absolute_time();
