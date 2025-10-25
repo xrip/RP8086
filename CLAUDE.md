@@ -67,26 +67,23 @@ The project uses RP2040's dual-core capability for interrupt handling:
 - **Synchronization**: Uses `volatile bool irq_pending` flag
 - **IBM PC compatible**: Matches standard 8253/8254 PIT frequency (1.193182 MHz / 65536)
 
-**INTA Protocol (GPIO Interrupt on Core0):**
-- `inta_gpio_callback()` handles both edges of INTA signal
-- **First INTA (falling edge)**:
-  1. Takes manual control of READY pin (wait state)
-  2. Stops PIO SM to prevent bus conflicts
-  3. Clears FIFO and restarts SM
-- **Second INTA (falling edge)**:
-  1. Switches AD0-AD7 from PIO to GPIO output
-  2. Outputs interrupt vector byte (0x08 for IRQ0)
-- **Second INTA completion (rising edge)**:
-  1. Returns AD0-AD7 to PIO control
-  2. Sets READY=1, then returns READY to PIO
-  3. Restarts PIO SM
-  4. Resets INTA counter
+**INTA Protocol (PIO State Machine - ИЗМЕНЕНО):**
+- **INTA теперь обрабатывается в PIO**: В `i8086_bus.pio` добавлен `INTA_cycle`
+- **Процесс INTA**:
+  1. PIO обнаруживает INTA=LOW после ALE
+  2. Генерирует IRQ 3 и устанавливает READY=1 (wait state)
+  3. Ждет завершения INTA цикла (INTA=HIGH → INTA=LOW)
+  4. Передает управление в обычный цикл чтения
+- **Обработка в ARM**: `bus_read_handler()` получает IRQ 3
+  - Устанавливает флаг `irq_pending1 = true`
+  - При следующем чтении возвращает вектор прерывания (0x08)
+  - Автоматически сбрасывает INTR=0
 
-**Why GPIO interrupt for INTA (not PIO)?**
-- PIO instruction memory limited (24/32 used)
-- INTA is rare event (<1% of bus cycles)
-- GPIO interrupt latency acceptable (~1µs)
-- Allows complex multi-step protocol without PIO code
+**Почему INTA через PIO (а не GPIO прерывание)?**
+- INTA теперь часть основного state machine
+- Минимальная задержка реагирования
+- Автоматическая синхронизация с шинными циклами
+- Упрощенная логика обработки в ARM коде
 
 ### Bus Protocol Flow
 
@@ -113,12 +110,12 @@ Critical bus signals are hardcoded in `i8086_bus.pio`:
 - GPIO 20: ALE (Address Latch Enable)
 - GPIO 21: RD (Read strobe, active LOW)
 - GPIO 22: WR (Write strobe, active LOW)
-- GPIO 23: M/IO (Memory/IO select: 1=memory, 0=I/O)
-- GPIO 24: BHE (Bus High Enable)
-- GPIO 25: INTR (Interrupt request output to i8086, active HIGH)
-- GPIO 26: INTA (Interrupt acknowledge input from i8086, active LOW)
-- GPIO 27: RESET (Reset output, active LOW)
-- GPIO 28: READY (Wait state control output to CPU)
+- GPIO 23: INTA (Interrupt acknowledge input from i8086, active LOW) - **НОВОЕ**
+- GPIO 24: M/IO (Memory/IO select: 1=memory, 0=I/O)
+- GPIO 25: BHE (Bus High Enable)
+- GPIO 26: INTR (Interrupt request output to i8086, active HIGH) - **ИЗМЕНЕНО**
+- GPIO 27: READY (Wait state control output to CPU)
+- GPIO 28: RESET (Reset output, active LOW)
 - GPIO 29: CLK (Clock output to CPU)
 
 **Important:** Pin assignments in the `.define` section of `i8086_bus.pio` must match the actual hardware wiring. Changing them requires understanding PIO's pin constraints.
@@ -161,39 +158,46 @@ Critical bus signals are hardcoded in `i8086_bus.pio`:
 - PIO and IRQ settings
 - INTR/INTA/READY pin definitions
 
-**pic.c/h** - 8259A PIC emulation:
-- `pic_init()`: Initializes interrupt controller, sets up GPIO interrupt for INTA
-- `inta_gpio_callback()`: **Critical interrupt handler** for INTA protocol
-  - First INTA: Takes manual control of READY (wait state), stops PIO SM, restarts it
-  - Second INTA: Outputs interrupt vector (0x08 for IRQ0) on AD0-AD7
-  - Returns READY and AD0-AD7 control back to PIO after completion
-- `core1_irq_generator()`: Runs on Core1, generates IRQ0 every ~54.925ms (18.2 Hz, IBM PC standard)
-- **Why GPIO interrupt instead of PIO**: INTA is rare event, doesn't need hardware speed
-- **READY signal control**: Ensures reliable SM stop/restart without bus conflicts
+**pic.c/h** - 8259A PIC emulation (ИЗМЕНЕНО):
+- Функционал PIC перенесен в `main.c` и `cpu_bus.c`
+- `pic_init()`: Инициализирует INTR пин и запускает Core1
+- `core1_irq_generator()`: Работает на Core1, генерирует IRQ0 каждые ~549ms (для отладки на 5 КГц)
+  - В обычном режиме: ~54.925ms (18.2 Hz, IBM PC стандарт)
+- **INTA обработка через PIO**: В `i8086_bus.pio` добавлен `INTA_cycle`
+  - Использует IRQ 3 для синхронизации INTA протокола
+  - Автоматически управляет READY сигналом во время INTA
+  - Отправляет вектор прерывания (0x08 для IRQ0) через CPU_BUS_READ
 
 **bios.h** - GlaBIOS ROM image (8KB array)
 
+**Видеопамять (НОВОЕ):**
+- `videoram[4096]`: 4KB видеопамять для текстового режима
+- Адресация: 0xB0000-0xB8000 (мониторный режим MDA)
+- Поддержка 16-битных и 8-битных операций записи
+- Отображение через USB командой 'V' в main.c
+
 ## Current Implementation Status
 
-**Implemented (Фаза 1 complete + performance optimizations + interrupts):**
+**Implemented (Фаза 1 complete + performance optimizations + interrupts + видео):**
 - ✅ Clock generation on GPIO29 (PWM, 100 Hz debug mode, 33% duty)
-- ✅ RESET sequence on GPIO27
+- ✅ RESET sequence on GPIO28 (**ИЗМЕНЕНО** с GPIO27)
 - ✅ Highly optimized PIO bus controller for i8086 (16-bit data bus, 20-bit address)
 - ✅ ROM emulation: 8KB GlaBIOS at 0xFE000-0xFFFFF (4-byte aligned)
-- ✅ RAM emulation: 64KB at 0x00000-0x0FFFF (4-byte aligned)
+- ✅ RAM emulation: 224KB at 0x00000-0x37FFF (**УВЕЛИЧЕНО** с 64KB)
+- ✅ **Видеопамять**: 4KB at 0xB0000-0xB8000 (MDA текстовый режим) - **НОВОЕ**
 - ✅ Memory vs I/O address decoding (M/IO signal)
 - ✅ **Ultra-fast 16-bit bus operations** via aligned memory access
-- ✅ Test I/O port: 0x00 (Fibonacci generator)
-- ✅ **8259A PIC emulation** with INTR/INTA handling (GPIO interrupt + multicore)
-- ✅ **READY signal control** during INTA for reliable bus operations
-- ✅ **Core1 IRQ generator** (18.2 Hz timer, IBM PC compatible)
+- ✅ **BHE handling**: Полная поддержка 8/16 битных операций
+- ✅ **INTA через PIO**: Обработка прерываний через state machine (IRQ 3) - **НОВОЕ**
+- ✅ **INTR на GPIO26**: Генерация прерываний Core1 - **ИЗМЕНЕНО**
+- ✅ **Core1 IRQ generator** (18.2 Hz timer, IBM PC совместимый)
 - 🚀 **40-60% performance boost** with address alignment optimization
 
 **Not yet implemented:**
-- ⚠️ BHE handling (currently BHE is captured but unused - i8086 always reads 16 bits)
-- ⚠️ Additional I/O devices (UART, PIT)
 - ⚠️ Full 8259A register interface (ICW1-ICW4, OCW1-OCW3)
+- ⚠️ Additional I/O devices (UART, PIT)
 - ⚠️ DMA controller
+- ⚠️ **Раздельный файл pic.c** (функционал интегрирован в main.c/cpu_bus.c)
 
 ## Development Guidelines
 
@@ -207,9 +211,22 @@ Follow KISS principle (Keep It Simple, Stupid):
 
 ### Adding New I/O Ports
 
-Add cases to `cpu_bus_read()` and `cpu_bus_write()` in `cpu_bus.c`. These functions receive:
+Add cases to `i8086_read()` and `i8086_write()` in `cpu_bus.c`. These functions receive:
 - 20-bit address (for I/O use lower 16 bits as port number)
-- m_io flag (0 for I/O, 1 for memory)
+- is_memory_access flag (true for memory, false for I/O)
+- bhe flag для 8/16 битных операций
+
+**Текущие порты:**
+- Порт 0x40, 0x41, 0x61, 0x21: Эмуляция PIT/PIC (возвращают 0x0000)
+- Ports array: 0x000-0xFFF для общего использования (через `ports[]`)
+
+### USB Commands (main.c)
+
+- **'M'**: Дамп памяти (первые 400 байт)
+- **'V'**: Дамп видеопамяти (160x25 символов) - **НОВОЕ**
+- **'P'**: Дамп портов ввода-вывода (первые 400 байт)
+- **'R'**: Сброс CPU
+- **'B'**: Перезагрузка в bootloader mode
 
 ### Modifying PIO Bus Logic
 
@@ -258,8 +275,10 @@ Wrong order = i8086 starts before PIO is ready = bus conflicts!
 ### Memory Map
 
 ```
-0x00000 - 0x0FFFF : RAM (64KB)
-0x10000 - 0xFDFFF : Unmapped (returns 0xFFFF)
+0x00000 - 0x37FFF : RAM (224KB) - **УВЕЛИЧЕНО**
+0x38000 - 0xAFFFF : Unmapped (returns 0xFFFF)
+0xB0000 - 0xB7FFF : Video RAM MDA (4KB) - **НОВОЕ**
+0xB8000 - 0xFDFFF : Unmapped (returns 0xFFFF)
 0xFE000 - 0xFFFFF : ROM GlaBIOS (8KB)
 ```
 
