@@ -13,7 +13,7 @@ macro	entry	addr
 		err	'No room for ENTRY point'
 	endif
 	if pad gt 0
-		db	pad dup(090h)
+		db	pad dup(0F4h)
 	endif
 endm
 
@@ -34,17 +34,19 @@ entry	0E05Bh				; IBM restart entry point
 proc	post	near
 
 warm_boot:					; Entered by POWER_ON/RESET
-    	mov	al, 30h 			; Set up IBM-compatible stack
+    cli
+    	mov	ax, 30h 			; Set up IBM-compatible stack
     	mov	ss, ax				;   segment 0030h
     	mov	sp, 100h			;   offset  0100h
 
-    sti ; enable ints
     mov [0x20], 0FEA5h
     mov [0x22], 0F000h
-
+    sti ; enable ints
 
 lck: jmp lck
-
+nop
+nop
+nop
 endp post
 
 
@@ -52,16 +54,16 @@ endp post
 ;---------------------------------------------------------------------------------------------------
 entry	0FEA5h				; IBM entry, hardware clock
 proc	int_8	far
-	sti					; Routine services clock tick
-	push	ds
-	push	dx
+;	sti					; Routine services clock tick
+;	push	ds
+;	push	dx
 	push	ax
 
 	mov	al, 55h 			;   send end_of_interrupt
 	out	20h, al 			;   to 8259 interrupt chip
 	pop	ax
-	pop	dx
-	pop	ds
+;	pop	dx
+	;pop	ds
 	iret
 
 endp	int_8

@@ -13,7 +13,8 @@ include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
 project(RP8086 C CXX ASM)
 
 pico_sdk_init()
-
+add_compile_options(-ffunction-sections -fdata-sections -Ofast) # size optimizations
+#add_link_options(-flto -fwhole-program)
 add_executable(${PROJECT_NAME}
         main.c
         cpu.c
@@ -46,13 +47,16 @@ target_include_directories(${PROJECT_NAME} PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}
 )
 
+
 target_link_libraries(${PROJECT_NAME} PRIVATE
         pico_runtime
         pico_stdio
         pico_multicore
         hardware_pio
         hardware_pwm
+        -Wl,--wrap=atexit # size optimizations
 )
+pico_set_binary_type(${PROJECT_NAME} copy_to_ram)
 
 pico_add_extra_outputs(${PROJECT_NAME})
 target_link_options(${PROJECT_NAME} PRIVATE -Xlinker --print-memory-usage --data-sections --function-sections)

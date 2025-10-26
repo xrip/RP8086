@@ -29,3 +29,30 @@
 #define BUS_CTRL_SM      0
 #define WRITE_IRQ        PIO0_IRQ_0
 #define READ_IRQ         PIO0_IRQ_1
+
+
+
+//
+
+
+// Структуры остаются те же, но спин-блок в них больше не нужен.
+typedef enum { LOG_READ, LOG_WRITE, LOG_INTA } log_type_t;
+
+typedef struct {
+    uint64_t timestamp;   // Метка времени для отладки таймингов
+    log_type_t type;      // Тип операции
+    uint32_t address;     // 20-битный адрес
+    uint16_t data;        // 16-битные данные
+    bool bhe;             // Состояние BHE
+    bool mio;             // Состояние MIO
+} log_entry_t;
+
+#define LOG_BUFFER_SIZE 256
+typedef struct {
+    log_entry_t buffer[LOG_BUFFER_SIZE];
+    volatile uint32_t head;
+    // tail больше не нужен здесь, Core 1 будет сам следить за указателями, полученными из FIFO
+} shared_log_buffer_t;
+
+// Глобальный буфер в общей памяти
+extern shared_log_buffer_t log_buffer;
