@@ -5,6 +5,7 @@
 
 #include "config.h"
 #include "bios.h"
+#include "pico/multicore.h"
 
 // ROM configuration
 #define BIOS_ROM_SIZE          sizeof(GLABIOS_0_4_1_8T_ROM) // 8K BIOS
@@ -13,7 +14,7 @@
 #define BIOS_ROM_MASK_16BIT    (BIOS_ROM_SIZE - 2)          // 0x1FFE
 
 // RAM configuration (RP2040 has 264KB SRAM, use 224KB for i8086)
-#define RAM_SIZE         (224 * 1024)                        // 224KB
+#define RAM_SIZE         (128 * 1024)                        // 224KB
 #define RAM_MASK         (RAM_SIZE - 1)                     // 0xFFFF
 #define RAM_MASK_16BIT   (RAM_SIZE - 2)                     // 0xFFFE
 
@@ -22,6 +23,33 @@ uint8_t videoram[4096] __attribute__((aligned(4)));
 // Temporary test variables
 static uint16_t prevFibNo = 1;
 static uint16_t currFibNo = 1;
+static uint64_t log_event_counter = 0;
+
+static inline void __time_critical_func(log_event)(log_type_t type, uint32_t address, uint16_t data, bool bhe, bool m_io) {
+    if (address >= 0xB0000 && address < 0xB8000) {
+        // Получаем индекс для новой записи
+        uint32_t current_head = log_buffer.head;
+
+        // Заполняем данные
+        log_buffer.buffer[current_head].type = type;
+        log_buffer.buffer[current_head].address = address;
+        log_buffer.buffer[current_head].data = data;
+        log_buffer.buffer[current_head].bhe = bhe;
+        log_buffer.buffer[current_head].mio = m_io;
+        log_buffer.buffer[current_head].timestamp = log_event_counter++;
+
+        // Продвигаем head для следующей записи
+        log_buffer.head = (current_head + 1) & (LOG_BUFFER_SIZE - 1);
+
+        // Проверяем, есть ли место в аппаратном FIFO.
+        // Если его нет, мы пропустим этот лог, но ISR не заблокируется!
+        if (multicore_fifo_wready()) {
+            // Отправляем УКАЗАТЕЛЬ на нашу запись во второе ядро.
+            // Мы можем отправить либо полный указатель, либо только индекс. Индекс эффективнее.
+            multicore_fifo_push_blocking_inline((uint32_t)current_head);
+        }
+    }
+}
 
 // Extract bus transaction info from PIO FIFO data
 static inline bus_info_t parse_bus_state(const uint32_t bus_data) {
@@ -58,11 +86,17 @@ uint16_t __time_critical_func(i8086_read)(const uint32_t address, const bool is_
     } else {
         // I/O access
         const uint16_t port = address & 0xFFE;
+        static uint8_t port3DA = 0;
+        if (port == 0x3BA) {
+            port3DA ^= 1;
+            if (!(port3DA & 1)) port3DA ^= 8;
+             return port3DA;
 
-
-        if (port == 0x40 || port == 0x61 || port == 0x41 || port == 0x21) {
-            return 0x0000;
         }
+
+        // if (port == 0x40 || port == 0x61 || port == 0x41 || port == 0x21) {
+            // return 0x0000;
+        // }
 
         // return *(uint16_t *) &ports[port];
         // return 0;
@@ -89,7 +123,7 @@ void __time_critical_func(i8086_write)(uint32_t address, const uint16_t data, co
                 ram[address] = (data >> 8) & 0xFF;
             }
             // BHE=1, A0=1 - недопустимая комбинация, игнорируем
-        } if (address >= 0xB0000 && address < 0xB8000) {
+        } else if (address >= 0xB0000 && address < 0xB8000) {
 
             // printf ("VIDEO RAM write at %05x %x %d\n", address, data, bhe);
             const bool a0 = address & 1;
@@ -137,13 +171,14 @@ void __time_critical_func(bus_write_handler)() {
         const uint16_t data = pio_sm_get_blocking(BUS_CTRL_PIO, BUS_CTRL_SM) & 0xFFFF;
         i8086_write(bus.address, data, bus.m_io, bus.bhe);
 
-        if (!bus.m_io)
+        log_event(LOG_WRITE, bus.address, data, bus.bhe, bus.m_io);
+        // if (!bus.m_io)
         {
-            printf(">> %s WRITE %05x : %04x BHE:%d\n", !bus.m_io ? "PORT" : "", bus.address, data, bus.bhe);
+            // printf(">> %s WRITE %05x : %04x BHE:%d\n", !bus.m_io ? "PORT" : "", bus.address, data, bus.bhe);
         }
     }
-
     pio_interrupt_clear(BUS_CTRL_PIO, 0);
+
 }
 bool irq_pending1 = false;
 void __time_critical_func(bus_read_handler)() {
@@ -165,15 +200,16 @@ void __time_critical_func(bus_read_handler)() {
                 irq_pending1 = false;
             }
 
+            log_event(LOG_READ, bus.address, data, bus.bhe, bus.m_io);
             // if (!bus.m_io)
             {
-                printf("<< %s READ %05x : %04x BHE:%d\n", !bus.m_io ? "PORT" : "", bus.address, data, bus.bhe);
+                // printf("<< %s READ %05x : %04x BHE:%d\n", !bus.m_io ? "PORT" : "", bus.address, data, bus.bhe);
             }
         }
 
         pio_interrupt_clear(BUS_CTRL_PIO, 1);
     } else if (pio_interrupt_get(BUS_CTRL_PIO, 3)){ // Обработка прерывания
-            printf("INTA: Release INTR\n");
+            log_event(LOG_INTA, 0, 0, 0, 0);
             gpio_put(INTR_PIN, 0);
             irq_pending1 = true;
 
