@@ -5,7 +5,7 @@
 ; Контроллер шины i8086 в minimal mode
 ; - 16-битная шина данных (AD0-AD15)
 ; - 20-битная адресация (AD0-AD15 + A16-A19)
-; - Обработка циклов RD/WR/ALE
+; - Обработка циклов RD/WR/INTA
 ; - Управление READY для wait states через SIDESET
 ; ============================================================================
 
@@ -19,11 +19,11 @@
 .define MIO_PIN                  24 ; Memory/IO select (1=память, 0=I/O) - захватывается но не проверяется в PIO
 .define BHE_PIN                  25 ; Bus High Enable - захватывается но не проверяется в PIO
 
-.define public INTR_PIN          26 ; INTR. Не используется в PIO
+.define INTR_PIN                 26 ; INTR. Не используется в PIO
+
 .define public READY_PIN         27 ; Устанавливается через sideset sideset = READY_PIN (1=готов, 0=ждать)
 
 .define RESET_PIN                28 ; RESET. Не используется в PIO
-
 .define CLOCK_PIN                29 ; CLOCK. Не изспользуется в PIO.
 
 .wrap_target
@@ -82,12 +82,12 @@ RD_cycle:
     pull block                      ; Дождаться данных от ARM (блокирующее ожидание)
     out pins, 16             side 1 ; Выдать данные на AD0-AD15, опустить READY=0 (данные готовы)
     wait 1 gpio RD_PIN              ; Дождаться RD=HIGH (конец цикла чтения)
-    wait 1 gpio INTA_PIN         [0]; Ждем ВЫСОКИЙ INTA.
+    wait 1 gpio INTA_PIN            ; Ждем ВЫСОКИЙ INTA.
                                     ; В случае, если это был обычный цикл чтения он всегда будет в этот момент ВЫСОКИМ, а если это был цилк INTA то дождемся его завершения
-
 cleanup:
-    mov osr, null                [0]; Заполнить OSR нулями
-    out pindirs, 16              [0]; Вернуть AD0-AD15 в режим входов (Z-состояние)
+    mov osr, null                   ; Заполнить OSR нулями
+    out pindirs, 16                 ; Вернуть AD0-AD15 в режим входов (Z-состояние)
+
 .wrap
 
 
