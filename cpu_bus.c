@@ -26,26 +26,28 @@ static uint16_t currFibNo = 1;
 static uint64_t log_event_counter = 0;
 
 static inline void __time_critical_func(log_event)(log_type_t type, uint32_t address, uint16_t data, bool bhe, bool m_io) {
-    // Получаем индекс для новой записи
-    uint32_t current_head = log_buffer.head;
+    if (0 == m_io || address <= (192 * 1024)) {
+        // Получаем индекс для новой записи
+        uint32_t current_head = log_buffer.head;
 
-    // Заполняем данные
-    log_buffer.buffer[current_head].type = type;
-    log_buffer.buffer[current_head].address = address;
-    log_buffer.buffer[current_head].data = data;
-    log_buffer.buffer[current_head].bhe = bhe;
-    log_buffer.buffer[current_head].mio = m_io;
-    log_buffer.buffer[current_head].timestamp = log_event_counter++;
+        // Заполняем данные
+        log_buffer.buffer[current_head].type = type;
+        log_buffer.buffer[current_head].address = address;
+        log_buffer.buffer[current_head].data = data;
+        log_buffer.buffer[current_head].bhe = bhe;
+        log_buffer.buffer[current_head].mio = m_io;
+        log_buffer.buffer[current_head].timestamp = log_event_counter++;
 
-    // Продвигаем head для следующей записи
-    log_buffer.head = (current_head + 1) & (LOG_BUFFER_SIZE - 1);
+        // Продвигаем head для следующей записи
+        log_buffer.head = (current_head + 1) & (LOG_BUFFER_SIZE - 1);
 
-    // Проверяем, есть ли место в аппаратном FIFO.
-    // Если его нет, мы пропустим этот лог, но ISR не заблокируется!
-    if (multicore_fifo_wready()) {
-        // Отправляем УКАЗАТЕЛЬ на нашу запись во второе ядро.
-        // Мы можем отправить либо полный указатель, либо только индекс. Индекс эффективнее.
-        multicore_fifo_push_blocking_inline((uint32_t)current_head);
+        // Проверяем, есть ли место в аппаратном FIFO.
+        // Если его нет, мы пропустим этот лог, но ISR не заблокируется!
+        if (multicore_fifo_wready()) {
+            // Отправляем УКАЗАТЕЛЬ на нашу запись во второе ядро.
+            // Мы можем отправить либо полный указатель, либо только индекс. Индекс эффективнее.
+            multicore_fifo_push_blocking_inline((uint32_t)current_head);
+        }
     }
 }
 

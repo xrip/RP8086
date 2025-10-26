@@ -14,7 +14,7 @@
 // i8086 Clock Configuration
 // ============================================================================
 
-#define I8086_CLOCK_SPEED       5 * KHZ     // 100 Hz for debug (change to 5000000 for 5 MHz)
+#define I8086_CLOCK_SPEED       500 * KHZ     // 100 Hz for debug (change to 5000000 for 5 MHz)
 #define CONFIG_I8086_DUTY_CYCLE 33      // 33% duty cycle (required for i8086)
 
 

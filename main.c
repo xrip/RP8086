@@ -19,7 +19,7 @@ shared_log_buffer_t log_buffer;
     constexpr uint32_t timer_interval = 5492; // 549ms на 500Khz, 54.925ms на 5Mhz
     static bool irq_pending = false;
 
-    absolute_time_t next_irq = get_absolute_time() + 54920;
+    absolute_time_t next_irq = get_absolute_time();
     next_irq = delayed_by_ms(next_irq, timer_interval);
     while (true) {
         // Проверяем, пора ли генерировать прерывание
@@ -43,13 +43,13 @@ shared_log_buffer_t log_buffer;
             if (entry->type == LOG_INTA) {
                 printf("[%llu] !! INTA\n", entry->timestamp);
             } else
-                //if (0 == entry->mio /*|| entry->type == LOG_WRITE*/)
+                if (1)
                     {
                 // Теперь спокойно форматируем и выводим
                 const char *type_str;
                 switch(entry->type) {
-                    case LOG_READ:  type_str = entry->mio ? "<< MEM" : "<< PORT"; break;
-                    case LOG_WRITE: type_str = entry->mio ? ">> MEM" : ">> PORT"; break;
+                    case LOG_READ:  type_str = entry->mio ? "<<R MEM" : "<<R PORT"; break;
+                    case LOG_WRITE: type_str = entry->mio ? "W>> MEM" : "W>> PORT"; break;
                         default: type_str = "?? UNKNOWN: "; break;
                 }
 
@@ -95,11 +95,11 @@ void pic_init(void) {
 
     printf("\033[2Ji8086 booted @ %d KHz\n", I8086_CLOCK_SPEED / KHZ);
 
-    cpu_bus_init(); // Initialize bus BEFORE releasing i8086 from reset
+
     start_cpu_clock(); // Start i8086 clock generator
     reset_cpu(); // Now i8086 can safely start
-
     pic_init(); // Initialize interrupt controller and start Core1 IRQ generator
+    cpu_bus_init(); // Initialize bus BEFORE releasing i8086 from reset
     // reset_cpu(); // Now i8086 can safely start
 
 
