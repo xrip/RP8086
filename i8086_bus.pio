@@ -43,19 +43,19 @@ capture_address:
 ; Определить тип цикла (WR, RD или INTA) проверкой GPIO 21/22/23
 ================================================================
 wait_strobe:
-    mov osr, pins                   ; Прочитать GPIO (1 такт)
-    out null, 21                    ; Выбросить GPIO 0-20 (1 такт)
+    mov osr, pins                   ; Прочитать GPIO
+    out null, 21                    ; Выбросить GPIO 0-20
 
-    out x, 1                        ; X = GPIO 21 (RD) (1 такт)
-    jmp !x RD_cycle                 ; Если RD=0 (1 такт)
+    out x, 1                        ; X = GPIO 21 (RD)
+    jmp !x RD_cycle                 ; Если RD=0
 
-    out x, 1                        ; X = GPIO 22 (WR) (1 такт)
-    jmp !x WR_cycle                 ; Если WR=0 (1 такт)
+    out x, 1                        ; X = GPIO 22 (WR)
+    jmp !x WR_cycle                 ; Если WR=0
 
-    out x, 1                        ; X = GPIO 23 (INTA) (1 такт)
-    jmp !x INTA_cycle               ; Если INTA=0 (1 такт)
+    out x, 1                        ; X = GPIO 23 (INTA)
+    jmp !x INTA_cycle               ; Если INTA=0
 
-    jmp wait_strobe                 ; Polling (1 такт)
+    jmp wait_strobe                 ; Polling 
 
 ; ============================================================================
 ; Цикл записи: CPU записывает данные в память/IO
