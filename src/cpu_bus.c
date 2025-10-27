@@ -4,7 +4,7 @@
 #include "bios.h"
 
 // IRQ management (from main.c)
-extern uint16_t current_irq_vector;
+extern  uint16_t current_irq_vector;
 
 // Keyboard buffer (from main.c)
 extern uint8_t keyboard_buffer[16];
@@ -143,7 +143,7 @@ void __time_critical_func(bus_write_handler)() {
 }
 
 void __time_critical_func(bus_read_handler)() {
-    static bool irq_pending = false;
+    static uint16_t irq_pending = false;
     if (pio_interrupt_get(BUS_CTRL_PIO, 1)) {
         // while (pio_sm_get_rx_fifo_level(BUS_CTRL_PIO, BUS_CTRL_SM) > 0)
         {
@@ -151,17 +151,19 @@ void __time_critical_func(bus_read_handler)() {
             const uint32_t bus_state = pio_sm_get_blocking(BUS_CTRL_PIO, BUS_CTRL_SM);
 
             // Read data and send back to PIO
-            // Разделяем пути выполнения для оптимизации компилятора
-            uint16_t data;
             if (unlikely(irq_pending)) {
                 // INTA: возвращаем вектор прерывания (0x08 для IRQ0, 0x09 для IRQ1)
-                data = current_irq_vector;
-                irq_pending = current_irq_vector = 0;
+                pio_sm_put_blocking(BUS_CTRL_PIO, BUS_CTRL_SM, irq_pending << 16 | 0x00FF);
+                irq_pending = 0;
             } else {
-                // Обычное чтение памяти/портов. Хак для 16 битного чтения с помощью 0xFFFFE
-                data = i8086_read(bus_state & 0xFFFFE, bus_state & MIO);
+                // Обычное чтение памяти/портов.
+                pio_sm_put_blocking(BUS_CTRL_PIO, BUS_CTRL_SM, i8086_read(bus_state & 0xFFFFE, bus_state & MIO) << 16 | 0xFFFF);
             }
-            pio_sm_put_blocking(BUS_CTRL_PIO, BUS_CTRL_SM, data << 16 | 0xFFFF);
+
+            // TODO если мы не можем обработать адрес, вместо того чтобы _НЕ_ перключать пины на выход - можно выполнить следующий код, чтобы отпустить шину
+            // pio_sm_exec(BUS_CTRL_PIO, BUS_CTRL_SM, pio_encode_jmp(i8086_bus_wrap_target) | pio_encode_sideset_opt(1,1)); // jmp .wrap_target side 1
+            // pio_sm_put_blocking(BUS_CTRL_PIO, BUS_CTRL_SM, 0xDEADBEEF); // Совершенно не важно что отправится в буфер, следующая команда JMP в начало
+
             // log_event(LOG_READ, bus_state & 0xFFFFE, data, bus_state & (1 << 25), bus_state & (1 << 24));
         }
 
@@ -170,8 +172,9 @@ void __time_critical_func(bus_read_handler)() {
         // INTA cycle
         // log_event(LOG_INTA, 0, 0, 0, 0);
         pio_interrupt_clear(BUS_CTRL_PIO, 3);
-        gpio_put(INTR_PIN, 0); // Опускаем INTR
-        irq_pending = true;
+
+        irq_pending = current_irq_vector;
+        current_irq_vector = 0;
     }
 }
 

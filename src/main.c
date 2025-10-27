@@ -13,7 +13,7 @@ extern uint8_t VIDEORAM[] __attribute__((aligned(4)));
 // ============================================================================
 // IRQ System - Simple Version
 // ============================================================================
-uint16_t current_irq_vector = 0; // 0=IRQ0(timer), 1=IRQ1(keyboard)
+uint16_t  current_irq_vector = 0; // 0=IRQ0(timer), 1=IRQ1(keyboard)
 
 // ============================================================================
 // Keyboard Buffer - Simple Circular Buffer
@@ -115,9 +115,7 @@ void pic_init(void) {
         // ═══════════════════════════════════════════════════════
         // 2. Управление сигналом INTR (приоритет: IRQ0 > IRQ1)
         // ═══════════════════════════════════════════════════════
-        if (current_irq_vector) {
-            gpio_put(INTR_PIN, 1);
-        }
+        gpio_put(INTR_PIN, current_irq_vector ? 1 : 0);
 
         tight_loop_contents();
     }
