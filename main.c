@@ -6,178 +6,211 @@
 #include "hardware/watchdog.h"
 #include "pico/bootrom.h"
 #include "pico/multicore.h"
-extern uint8_t ram[] __attribute__((aligned(4)));
-extern uint8_t ports[] __attribute__((aligned(4)));
-extern uint8_t videoram[] __attribute__((aligned(4)));
-shared_log_buffer_t log_buffer;
+extern uint8_t RAM[] __attribute__((aligned(4)));
+extern uint8_t PORTS[] __attribute__((aligned(4)));
+extern uint8_t VIDEORAM[] __attribute__((aligned(4)));
 
 // ============================================================================
-// Core1: Генератор IRQ0 каждые ~54.925ms (18.2 Hz, как в IBM PC)
+// IRQ System - Simple Version
 // ============================================================================
-[[noreturn]] void core1_irq_generator(void) {
-    // busy_wait_ms(5492);
-    constexpr uint32_t timer_interval = 5492; // 549ms на 500Khz, 54.925ms на 5Mhz
-    static bool irq_pending = false;
+uint16_t current_irq_vector = 0; // 0=IRQ0(timer), 1=IRQ1(keyboard)
 
-    absolute_time_t next_irq = get_absolute_time();
-    next_irq = delayed_by_ms(next_irq, timer_interval);
+// ============================================================================
+// Keyboard Buffer - Simple Circular Buffer
+// ============================================================================
+uint8_t keyboard_buffer[16];
+volatile uint8_t kb_head = 0;
+volatile uint8_t kb_tail = 0;
+
+// ============================================================================
+// ASCII to Scancode (IBM PC/XT Set 1) - Simplified
+// ============================================================================
+static uint8_t ascii_to_scancode(const int ascii) {
+    // Letters
+    if (ascii >= 'a' && ascii <= 'z') {
+        // QWERTY layout mapping
+        static const uint8_t qwerty_map[] = {
+            0x1E, 0x30, 0x2E, 0x20, 0x12, 0x21, 0x22, 0x23, // a-h
+            0x17, 0x24, 0x25, 0x26, 0x32, 0x31, 0x18, 0x19, // i-p
+            0x10, 0x13, 0x1F, 0x14, 0x16, 0x2F, 0x11, 0x2D, // q-x
+            0x15, 0x2C // y-z
+        };
+        return qwerty_map[ascii - 'a'];
+    }
+    if (ascii >= 'A' && ascii <= 'Z') {
+        // Uppercase - same scancodes (shift handled separately)
+        static const uint8_t qwerty_map[] = {
+            0x1E, 0x30, 0x2E, 0x20, 0x12, 0x21, 0x22, 0x23,
+            0x17, 0x24, 0x25, 0x26, 0x32, 0x31, 0x18, 0x19,
+            0x10, 0x13, 0x1F, 0x14, 0x16, 0x2F, 0x11, 0x2D,
+            0x15, 0x2C
+        };
+        return qwerty_map[ascii - 'A'];
+    }
+    // Digits
+    if (ascii >= '0' && ascii <= '9') {
+        static const uint8_t digit_map[] = {
+            0x0B, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A
+        };
+        return digit_map[ascii - '0'];
+    }
+    // Special keys
+    switch (ascii) {
+        case ' ': return 0x39; // Space
+        case '\r':
+        case '\n': return 0x1C; // Enter
+        case '\b': return 0x0E; // Backspace
+        case '\t': return 0x0F; // Tab
+        case 27: return 0x01; // Escape
+        default: return 0x00; // Unknown
+    }
+}
+
+// ============================================================================
+// Add scancode to keyboard buffer and trigger IRQ1
+// ============================================================================
+static void push_scancode(const uint8_t scancode) {
+    if (scancode == 0x00) return; // Ignore unknown keys
+
+    const uint8_t next_head = (kb_head + 1) & 15;
+    if (next_head != kb_tail) {
+        // Buffer not full
+        keyboard_buffer[kb_head] = scancode;
+        kb_head = next_head;
+        if (!current_irq_vector) {
+            current_irq_vector = (0xFF00 | 8) + 1; // IRQ 1
+        }
+    }
+}
+void pic_init(void) {
+    // Настройка INTR как выход
+    gpio_init(INTR_PIN);
+    gpio_set_dir(INTR_PIN, GPIO_OUT);
+    gpio_put(INTR_PIN, 0); // По умолчанию LOW
+
+}
+// ============================================================================
+// Core1: Обработка i8086_bus
+// ============================================================================
+[[noreturn]] void bus_handler_core(void) {
+    constexpr uint32_t timer_interval = 54925; // 549ms на 500Khz, 54.925ms на 5Mhz
+
+    start_cpu_clock(); // Start i8086 clock generator
+    pic_init(); // Initialize interrupt controller and start Core1 IRQ generator
+    cpu_bus_init(); // Initialize bus BEFORE releasing i8086 from reset
+    reset_cpu(); // Now i8086 can safely start
+
+    absolute_time_t next_irq0 = get_absolute_time();
+    next_irq0 = delayed_by_us(next_irq0, timer_interval);
+
     while (true) {
-        // Проверяем, пора ли генерировать прерывание
-        if (absolute_time_diff_us(next_irq, get_absolute_time()) >= 0) {
-            // Пора генерировать прерывание
-            if (!irq_pending) {
-                //printf("INTERRUPT REQUESTED\n");
-                gpio_put(INTR_PIN, 1); // Поднять INTR
-                //irq_pending = true;
-            }
-
-            // Следующее прерывание через 54925µs (~54.925ms, 18.2 Hz). Для теста на 5Khz делаем гораздо реже
-            next_irq = delayed_by_ms(next_irq, 5492);
+        // ═══════════════════════════════════════════════════════
+        // 1. Генерация таймерного прерывания IRQ0
+        // ═══════════════════════════════════════════════════════
+        if (absolute_time_diff_us(next_irq0, get_absolute_time()) >= 0) {
+            current_irq_vector = (0xFF00 | 8) + 0; // IRQ 0
+            next_irq0 = delayed_by_us(next_irq0, timer_interval);
         }
 
-        if (multicore_fifo_rvalid()) {
-            // Если данные есть, вычитываем индекс
-            uint32_t entry_index = multicore_fifo_pop_blocking_inline();
-            const log_entry_t *entry = &log_buffer.buffer[entry_index];
-
-            if (entry->type == LOG_INTA) {
-                //printf("[%llu] !! INTA\n", entry->timestamp);
-            } else
-                if (entry->type == LOG_WRITE && entry->address >= 0xB0000 ) {
-                    const uint16_t address = entry->address - 0xB0000;
-                    printf("\x1b[%d;%dH%c", 1+(address / 2) / 80, 1+(address / 2) % 80, entry->data & 0xFF);
-                } else
-                if (0)
-                    {
-                // Теперь спокойно форматируем и выводим
-                const char *type_str;
-                switch(entry->type) {
-                    case LOG_READ:  type_str = entry->mio ? "<<R MEM" : "<<R PORT"; break;
-                    case LOG_WRITE: type_str = entry->mio ? "W>> MEM" : "W>> PORT"; break;
-                        default: type_str = "?? UNKNOWN: "; break;
-                }
-
-                printf("[%llu] %s 0x%05lx : 0x%04x BHE:%d\n",                       entry->timestamp, type_str, entry->address, entry->data, entry->bhe);
-            }
+        // ═══════════════════════════════════════════════════════
+        // 2. Управление сигналом INTR (приоритет: IRQ0 > IRQ1)
+        // ═══════════════════════════════════════════════════════
+        if (current_irq_vector) {
+            gpio_put(INTR_PIN, 1);
         }
 
         tight_loop_contents();
     }
 }
 
-// ============================================================================
-// Инициализация контроллера прерываний
-// ============================================================================
-void pic_init(void) {
-    // Настройка INTR как выход
-    gpio_init(INTR_PIN);
-    gpio_set_dir(INTR_PIN, GPIO_OUT);
-    // gpio_pull_up(INTR_PIN);
-    gpio_put(INTR_PIN, 0); // По умолчанию LOW
-
-
-    log_buffer.head = 0;
-    // Очищаем FIFO на случай, если там что-то осталось от предыдущего запуска
-    multicore_fifo_drain();
-    multicore_launch_core1(core1_irq_generator);
-}
-
-
 [[noreturn]] int main() {
-
-
     // Overclock to 400 MHz for maximum performance
     hw_set_bits(&vreg_and_chip_reset_hw->vreg, VREG_AND_CHIP_RESET_VREG_VSEL_BITS);
+    busy_wait_at_least_cycles((SYS_CLK_VREG_VOLTAGE_AUTO_ADJUST_DELAY_US * (uint64_t) XOSC_HZ) / 1000000);
     set_sys_clock_hz(PICO_CLOCK_SPEED, true);
-    busy_wait_ms(250); // Даем время стабилизироваться напряжению
+    // busy_wait_ms(250); // Даем время стабилизироваться напряжению
 
     stdio_usb_init();
-
-    busy_wait_ms(2500); // Даем время стабилизироваться напряжению
-
-
-    printf("\033[2Ji8086 booted @ %d KHz\n", I8086_CLOCK_SPEED / KHZ);
+    while (!stdio_usb_connected()) { tight_loop_contents(); }
 
 
-    start_cpu_clock(); // Start i8086 clock generator
-    reset_cpu(); // Now i8086 can safely start
-    pic_init(); // Initialize interrupt controller and start Core1 IRQ generator
-    cpu_bus_init(); // Initialize bus BEFORE releasing i8086 from reset
-    // reset_cpu(); // Now i8086 can safely start
+    multicore_launch_core1(bus_handler_core);
 
-
+    absolute_time_t next_frame = get_absolute_time();
+    next_frame = delayed_by_us(next_frame, 16666);
 
     while (true) {
-        int c = getchar_timeout_us(10);
-        switch (c) {
-            case 'R':
-            case 'r': {
-                printf("\033[2JReseting cpu\n");
-                gpio_put(INTR_PIN, 0); // По умолчанию LOW
-                reset_cpu();
-                // watchdog_enable(0, 0);
-                break;
-            }
-            case 'B':
-            case 'b': {
-                printf("===================== RESET");
-                reset_usb_boot(0, 0);
-                break;
-            }
-            case 'M':
-            case 'm': {
-                printf("\nMemory dump (first 400 bytes):\n");
-                for (int i = 0; i < 0x400; i += 16) {
-                    printf("%04X: ", i);
-                    for (int j = 0; j < 16; j++) {
-                        uint8_t value = ram[i + j];
-                        printf("%02X ", value);
-                    }
-                    printf(" | ");
-                    for (int j = 0; j < 16; j++) {
-                        uint8_t value = ram[i+j];
-                        printf("%c", value);
-                    }
-                    printf("\n");
-                }
-                break;
-            }
-            case 'V':
-            case 'v': {
-                printf("\nVideo Memory dump \n");
-                for (int i = 0; i < 160*5; i += 16) {
-                    printf("%04X: ", i);
-                    for (int j = 0; j < 16; j++) {
-                        uint8_t value = videoram[i + j];
-                        printf("%02X ", value);
-                    }
-                    printf(" | ");
-                    for (int j = 0; j < 16; j++) {
-                        uint8_t value = videoram[i+j];
-                        printf("%c", value);
-                    }
-                    printf("\n");
-                }
-                break;
-            }
+        // Отрисовка MDA фреймбуфера
+        if (absolute_time_diff_us(next_frame, get_absolute_time()) >= 0) {
+            next_frame = delayed_by_us(next_frame, 16666);
 
-            case 'P':
-            case 'p': {
-                printf("\nPorts dump (first 400 bytes):\n");
-                for (int i = 0; i < 0x3FF; i += 16) {
-                    printf("%04X: ", i);
-                    for (int j = 0; j < 16; j++) {
-                        uint8_t value = ports[i + j];
-                        printf("%02X ", value);
-                    }
-                    printf("\n");
+            printf("\033[2J\033[H");
+            for (int y = 0; y < 25 ; y++) {
+                for (int x = 0; x < 160; x+=2) {
+                    printf("%c", VIDEORAM[__fast_mul(y, 160) + x]);
                 }
-                break;
+                printf("\n");
             }
-
         }
-        __wfi();
+
+        int c = getchar_timeout_us(0);
+
+        // Special debug commands (uppercase variants)
+        if (c == 'R') {
+            printf("\033[2JReseting cpu\n");
+            gpio_put(INTR_PIN, 0); // По умолчанию LOW
+            reset_cpu();
+            // watchdog_enable(0, 0);
+        } else if (c == 'B') {
+            printf("===================== RESET");
+            reset_usb_boot(0, 0);
+        } else if (c == 'M') {
+            printf("\nMemory dump (first 400 bytes):\n");
+            for (int i = 0; i < 0x400; i += 16) {
+                printf("%04X: ", i);
+                for (int j = 0; j < 16; j++) {
+                    uint8_t value = RAM[i + j];
+                    printf("%02X ", value);
+                }
+                printf(" | ");
+                for (int j = 0; j < 16; j++) {
+                    uint8_t value = RAM[i + j];
+                    printf("%c", value);
+                }
+                printf("\n");
+            }
+        } else if (c == 'V') {
+            printf("\nVideo Memory dump \n");
+            for (int i = 0; i < 160 * 5; i += 16) {
+                printf("%04X: ", i);
+                for (int j = 0; j < 16; j++) {
+                    uint8_t value = VIDEORAM[i + j];
+                    printf("%02X ", value);
+                }
+                printf(" | ");
+                for (int j = 0; j < 16; j++) {
+                    uint8_t value = VIDEORAM[i + j];
+                    printf("%c", value);
+                }
+                printf("\n");
+            }
+        } else if (c == 'P') {
+            printf("\nPorts dump (first 400 bytes):\n");
+            for (int i = 0; i < 0x3FF; i += 16) {
+                printf("%04X: ", i);
+                for (int j = 0; j < 16; j++) {
+                    uint8_t value = PORTS[i + j];
+                    printf("%02X ", value);
+                }
+                printf("\n");
+            }
+        } else if (c != PICO_ERROR_TIMEOUT) {
+            // Regular key - convert to scancode and send to i8086
+            const uint8_t scancode = ascii_to_scancode(c);
+            push_scancode(scancode);
+        }
+
+        //__wfi();
         tight_loop_contents();
-        stdio_flush();
     }
 }
