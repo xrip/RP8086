@@ -224,19 +224,21 @@ Critical bus signals are hardcoded in `i8086_bus.pio`:
 - **Keyboard IRQ**:
   - `push_scancode()` устанавливает `current_irq_vector = 0xFF09` при наличии данных
   - Проверяет что вектор не занят: `if (!current_irq_vector)`
+  - Чтение порта 0x60 сбрасывает `current_scancode` автоматически
 
 **bios.h** - Turbo XT BIOS v3.1 (10/28/2017) ROM image:
 - 8KB array `BIOS[]` (renamed from GLABIOS_0_4_1_8T_ROM)
 - 4-byte aligned for optimal access
 
 **Keyboard System** (в main.c):
-- `keyboard_buffer[16]`: Circular buffer для скан-кодов
-- `kb_head`, `kb_tail`: Head/tail указатели (volatile для thread-safety)
+- `current_scancode`: Один байт для текущего скан-кода (0 = нет данных)
+  - Simplified: нет буфера - один символ достаточно для человеческого ввода
+  - Между нажатиями клавиш ~100ms, обработка IRQ ~100μs
 - `ascii_to_scancode()`: Конвертер ASCII → IBM PC/XT Scancode Set 1
   - Поддержка a-z/A-Z (QWERTY раскладка)
   - Поддержка цифр 0-9
   - Специальные клавиши: Space, Enter, Backspace, Tab, Escape
-- `push_scancode()`: Добавление скан-кода в буфер + установка IRQ1
+- `push_scancode()`: Установка скан-кода + установка IRQ1 (если нет других IRQ)
 
 ## Current Implementation Status
 
@@ -287,13 +289,14 @@ Add cases to `i8086_read()` and `i8086_write()` in `cpu_bus.c`. These functions 
 
 **Текущие порты:**
 - Порт 0x3BA: VGA status register (эмуляция vsync битов, приоритет проверки)
-- Порт 0x60: Keyboard Data Port (чтение скан-кодов из circular buffer)
-- Порт 0x64: Keyboard Status Port (bit 0 = данные доступны)
+- Порт 0x60: Keyboard Data Port (читает `current_scancode`, сбрасывает в 0)
+- Порт 0x64: Keyboard Status Port (bit 0 = `current_scancode != 0`)
 - Порты 0x000-0xFFF: Общие порты (возвращают 0xFFFF для неопределенных портов)
 
 **Оптимизация проверки портов:**
 - VGA порт (0x3BA) проверяется первым (самый частый)
 - Клавиатурные порты (0x60-0x6F) проверяются диапазонной маской: `(port & 0xFF0) == 0x60`
+- Упрощена логика клавиатуры: нет буфера, один байт `current_scancode`
 - Экономия 2-3 такта на каждой I/O операции
 
 ### USB Commands (main.c)

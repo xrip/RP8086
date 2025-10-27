@@ -16,11 +16,9 @@ extern uint8_t VIDEORAM[] __attribute__((aligned(4)));
 uint16_t  current_irq_vector = 0; // 0=IRQ0(timer), 1=IRQ1(keyboard)
 
 // ============================================================================
-// Keyboard Buffer - Simple Circular Buffer
+// Keyboard - Single Scancode (no buffer needed for human input)
 // ============================================================================
-uint8_t keyboard_buffer[16];
-volatile uint8_t kb_head = 0;
-volatile uint8_t kb_tail = 0;
+volatile uint8_t current_scancode = 0;  // 0 = нет данных
 
 // ============================================================================
 // ASCII to Scancode (IBM PC/XT Set 1) - Simplified
@@ -67,19 +65,14 @@ static uint8_t ascii_to_scancode(const int ascii) {
 }
 
 // ============================================================================
-// Add scancode to keyboard buffer and trigger IRQ1
+// Set scancode and trigger IRQ1
 // ============================================================================
 static void push_scancode(const uint8_t scancode) {
     if (scancode == 0x00) return; // Ignore unknown keys
 
-    const uint8_t next_head = (kb_head + 1) & 15;
-    if (next_head != kb_tail) {
-        // Buffer not full
-        keyboard_buffer[kb_head] = scancode;
-        kb_head = next_head;
-        if (!current_irq_vector) {
-            current_irq_vector = (0xFF00 | 8) + 1; // IRQ 1
-        }
+    current_scancode = scancode;
+    if (!current_irq_vector) {
+        current_irq_vector = (0xFF00 | 8) + 1; // IRQ 1
     }
 }
 void pic_init(void) {

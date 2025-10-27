@@ -2,14 +2,13 @@
 #include "cpu_bus.h"
 #include "config.h"
 #include "bios.h"
+#include "basic.h"
 
 // IRQ management (from main.c)
 extern  uint16_t current_irq_vector;
 
-// Keyboard buffer (from main.c)
-extern uint8_t keyboard_buffer[16];
-extern volatile uint8_t kb_head;
-extern volatile uint8_t kb_tail;
+// Keyboard scancode (from main.c)
+extern volatile uint8_t current_scancode;
 
 // ROM configuration
 #define BIOS_ROM_SIZE          sizeof(BIOS) // 8K BIOS
@@ -17,7 +16,7 @@ extern volatile uint8_t kb_tail;
 #define BIOS_ROM_MASK          (BIOS_ROM_SIZE - 1)          // 0x1FFF
 #define BIOS_ROM_MASK_16BIT    (BIOS_ROM_SIZE - 2)          // 0x1FFE
 
-#define RAM_SIZE         (192 * 1024)                       // KB
+#define RAM_SIZE         (128 * 1024)                       // KB
 #define RAM_MASK         (RAM_SIZE - 1)                     // 0xFFFF
 #define RAM_MASK_16BIT   (RAM_SIZE - 2)                     // 0xFFFE
 
@@ -36,6 +35,8 @@ __force_inline static uint16_t i8086_read(const uint32_t address, const bool is_
             return *(uint16_t *) &RAM[address];
         } else if (address >= 0xB0000 && address < 0xB8000) {
             return *(uint16_t *) &VIDEORAM[address & 4094];
+        } else if (address >= 0xF6000 && address < BIOS_ROM_BASE) {
+            return *(uint16_t *) &BASIC[address - 0xF6000];
         } else if (address >= BIOS_ROM_BASE) {
             return *(uint16_t *) &BIOS[address - BIOS_ROM_BASE];
         }
@@ -56,22 +57,15 @@ __force_inline static uint16_t i8086_read(const uint32_t address, const bool is_
         // Keyboard ports (редкие) - объединяем в одну диапазонную проверку
         // Проверяем диапазон 0x60-0x6F одним сравнением (экономим 2-3 такта)
         if ((port & 0xFF0) == 0x60) {
-            // Локальные копии volatile переменных для минимизации обращений к памяти
-            const uint8_t head = kb_head;
-            const uint8_t tail = kb_tail;
-
             if (port == 0x60) {
-                // Keyboard Data Port - читаем скан-код
-                if (head != tail) {
-                    const uint8_t scancode = keyboard_buffer[tail];
-                    kb_tail = (tail + 1) & 15;
-                    return scancode;
-                }
-                return 0;
+                // Keyboard Data Port - читаем скан-код и сбрасываем
+                const uint8_t scancode = current_scancode;
+                current_scancode = 0;  // Сбросить после чтения
+                return scancode;
             }
             if (port == 0x64) {
                 // Keyboard Status Port - bit 0 = данные доступны
-                return (head != tail) ? 0x01 : 0x00;
+                return current_scancode ? 0x01 : 0x00;
             }
         }
         return 0xFFFF;
