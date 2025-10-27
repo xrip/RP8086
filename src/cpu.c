@@ -1,28 +1,22 @@
 #include "cpu.h"
 #include "config.h"
 
-#include <hardware/gpio.h>
 #include <hardware/pwm.h>
 
-#include "pico/time.h"
 
 void start_cpu_clock(void)
 {
-    constexpr uint32_t sys_clock = PICO_CLOCK_SPEED;
-    constexpr uint32_t target_freq = I8086_CLOCK_SPEED;
-    constexpr uint32_t duty_percent = CONFIG_I8086_DUTY_CYCLE;
-
     // Calculate divider and wrap for best precision
     uint32_t div = 1;
     uint32_t wrap;
 
     while (div < 256) {
-        wrap = (sys_clock / (div * target_freq)) - 1;
+        wrap = (PICO_CLOCK_SPEED / (div * I8086_CLOCK_SPEED)) - 1;
         if (wrap <= 65535) break;
         div *= 10;  // Try 1, 10, 100, 1000
     }
 
-    const uint32_t level = ((wrap + 1) * duty_percent) / 100;
+    const uint32_t level = ((wrap + 1) * CONFIG_I8086_DUTY_CYCLE) / 100;
 
     gpio_set_function(CLOCK_PIN, GPIO_FUNC_PWM);
 
