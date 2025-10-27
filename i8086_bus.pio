@@ -55,7 +55,7 @@ wait_strobe:
     out x, 1                        ; X = GPIO 23 (INTA)
     jmp !x INTA_cycle               ; Если INTA=0
 
-    jmp wait_strobe                 ; Polling 
+    jmp wait_strobe                 ; Polling
 
 ; ============================================================================
 ; Цикл записи: CPU записывает данные в память/IO
@@ -89,7 +89,6 @@ RD_cycle:
 cleanup:
     mov osr, null                   ; Заполнить OSR нулями
     out pindirs, 16                 ; Вернуть AD0-AD15 в режим входов (Z-состояние)
-
 .wrap
 
 
@@ -100,8 +99,8 @@ void i8086_bus_program_init(PIO pio, uint sm, uint offset)
     pio_sm_config cfg = i8086_bus_program_get_default_config(offset);
 
     // Настройка направления сдвигов
-    sm_config_set_in_shift(&cfg, false, false, 32);   // IN: сдвиг влево, без autopush
-    sm_config_set_out_shift(&cfg, true, false, 32);   // OUT: сдвиг вправо, без autopull
+    sm_config_set_in_shift(&cfg, false, false, 32);          // IN: сдвиг влево, без autopush
+    sm_config_set_out_shift(&cfg, true, false, 32);          // OUT: сдвиг вправо, без autopull
 
     // Назначение пинов
     sm_config_set_in_pins(&cfg, i8086_bus_AD_BUS_PINS);      // IN base = GPIO 0
