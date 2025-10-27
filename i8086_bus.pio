@@ -120,7 +120,7 @@ void i8086_bus_program_init(PIO pio, uint sm, uint offset)
     pio_sm_set_consecutive_pindirs(pio, sm, i8086_bus_AD_BUS_PINS, 16, false);  // AD0-AD15: входы
     pio_sm_set_consecutive_pindirs(pio, sm, i8086_bus_READY_PIN, 1, true);      // READY: выход
 
-    // Установить READY=HIGH до старта (не готовы, вставить wait states)
+    // Установить READY=HIGH до старта
     gpio_put(i8086_bus_READY_PIN, true);
 
     // Инициализировать и запустить state machine
