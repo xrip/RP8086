@@ -13,6 +13,3 @@ void start_cpu_clock(void);
  * CPU starts execution from FFFF0h (reset vector)
  */
 void reset_cpu(void);
-
-// Включаем и выкключаем клок у цпу
-void toggle_cpu();
