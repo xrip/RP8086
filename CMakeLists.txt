@@ -16,9 +16,9 @@ pico_sdk_init()
 add_compile_options(-ffunction-sections -fdata-sections -Ofast) # size optimizations
 #add_link_options(-flto -fwhole-program)
 add_executable(${PROJECT_NAME}
-        main.c
-        cpu.c
-        cpu_bus.c
+        src/main.c
+        src/cpu.c
+        src/cpu_bus.c
 )
 
 pico_define_boot_stage2(slower_boot ${PICO_DEFAULT_BOOT_STAGE2_FILE})
@@ -36,8 +36,8 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
 
 
 pico_generate_pio_header(${PROJECT_NAME}
-        ${CMAKE_CURRENT_LIST_DIR}/i8086_bus.pio
-        OUTPUT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/i8086_bus.pio
+        OUTPUT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/
 )
 
 pico_enable_stdio_uart(${PROJECT_NAME} 0)
