@@ -53,41 +53,51 @@ The project uses a unique two-layer architecture that splits bus handling betwee
 
 ### Multicore Architecture
 
-The project uses RP2040's dual-core capability for interrupt handling:
+The project uses RP2040's dual-core capability with clearly separated responsibilities:
 
-**Core0 (Main):**
-- Runs main loop with `__wfi()` (Wait For Interrupt)
-- Services PIO interrupts (bus read/write via IRQ0/IRQ1)
-- Handles USB serial communication
-- Processes user commands (reset, memory dump, etc.)
+**Core0 (Main) - User Interface & I/O:**
+- System initialization (overclock to 400 MHz, USB setup)
+- Launches Core1 via `multicore_launch_core1(bus_handler_core)`
+- Main loop responsibilities:
+  - **Video rendering**: Outputs VIDEORAM to terminal at 60 FPS (every 16.666ms)
+  - **Keyboard input**: Processes USB serial input and converts to scancodes
+  - **Debug commands**: Handles uppercase commands (R, B, M, V, P)
+  - **Scancode injection**: ASCII → IBM PC/XT Scancode conversion via `push_scancode()`
+- No WFI - runs continuously with `tight_loop_contents()` hint
 
-**Core1 (IRQ Generator + Log Processor):**
-- Runs `core1_irq_generator()` in infinite loop
-- Generates IRQ0 every ~5492ms (adapted for 500 KHz CPU) using `absolute_time_t` timing
-  - At 5 MHz: ~54.925ms (18.2 Hz, IBM PC compatible)
-  - At 500 KHz: ~5492ms (for stable operation during development)
-- Sets INTR=HIGH when IRQ pending
-- **Asynchronous logging**: Processes log events from Core0 via multicore FIFO
-- **Real-time video output**: Displays video memory writes to terminal via ANSI escape sequences
-- **Benefits**: Offloads both IRQ generation and non-critical I/O from Core0
-- **Synchronization**: Uses multicore FIFO for lockless communication
-- **IBM PC compatible**: Matches standard 8253/8254 PIT frequency when running at full speed
+**Core1 (bus_handler_core) - Bus & IRQ Management:**
+- Hardware initialization sequence:
+  1. `start_cpu_clock()` - PWM clock generation
+  2. `pic_init()` - INTR pin setup
+  3. `cpu_bus_init()` - PIO program + IRQ handlers
+  4. `reset_cpu()` - Release i8086 from reset
+- Main loop responsibilities:
+  - **Timer IRQ generation**: IRQ0 every 54.925ms (18.2 Hz, IBM PC 8253/8254 compatible)
+  - **INTR signal management**: Sets INTR=HIGH when `current_irq_vector != 0`
+  - **Priority handling**: IRQ0 (timer) has implicit priority over IRQ1 (keyboard)
 
-**INTA Protocol (PIO State Machine - ИЗМЕНЕНО):**
-- **INTA теперь обрабатывается в PIO**: В `i8086_bus.pio` добавлен `INTA_cycle`
+**IRQ Handlers (Both Cores):**
+- `bus_read_handler()` and `bus_write_handler()` run at `PICO_HIGHEST_IRQ_PRIORITY`
+- Triggered by PIO interrupts (independent of which core is active)
+- Handle i8086 bus transactions in real-time
+- INTA protocol handled via PIO IRQ 3
+
+**INTA Protocol (PIO State Machine):**
+- **INTA обрабатывается в PIO**: В `i8086_bus.pio` реализован `INTA_cycle`
 - **Процесс INTA**:
   1. PIO обнаруживает INTA=LOW после ALE
   2. Генерирует IRQ 3 и устанавливает READY=1 (wait state)
   3. Ждет завершения INTA цикла (INTA=HIGH → INTA=LOW)
   4. Передает управление в обычный цикл чтения
 - **Обработка в ARM**: `bus_read_handler()` получает IRQ 3
-  - Устанавливает флаг `irq_pending1 = true`
-  - При следующем чтении возвращает вектор прерывания (0x08)
-  - Автоматически сбрасывает INTR=0
+  - Устанавливает статический флаг `irq_pending = true`
+  - Сбрасывает INTR=0 через `gpio_put(INTR_PIN, 0)`
+  - При следующем чтении возвращает `current_irq_vector` (0xFF08 для IRQ0, 0xFF09 для IRQ1)
+  - Очищает вектор: `irq_pending = current_irq_vector = 0`
 
 **Почему INTA через PIO (а не GPIO прерывание)?**
-- INTA теперь часть основного state machine
-- Минимальная задержка реагирования
+- INTA интегрирован в основной state machine
+- Минимальная задержка реагирования (hardware-level)
 - Автоматическая синхронизация с шинными циклами
 - Упрощенная логика обработки в ARM коде
 
@@ -129,31 +139,41 @@ Critical bus signals are hardcoded in `i8086_bus.pio`:
 
 ## Code Organization
 
-**main.c** - Entry point:
+**main.c** - Entry point and user interface:
 - System clock setup (400 MHz overclock with voltage boost)
-- USB serial init with delays
-- Initialization sequence: `start_cpu_clock()` → `reset_cpu()` → `pic_init()` → `cpu_bus_init()`
-- **Core1 IRQ generator**: Generates timer interrupts + processes async logs
-- **Multicore logging system**: Shared buffer for bus event logging
-- WFI loop with `tight_loop_contents()` hint
-- USB command processor (M/V/P/R/B)
+- USB serial init (waits for connection via `stdio_usb_connected()`)
+- Launches Core1: `multicore_launch_core1(bus_handler_core)`
+- **Core0 main loop**:
+  - 60 FPS video rendering (25×80 MDA text mode via ANSI escape codes)
+  - USB keyboard input processing
+  - Debug commands (uppercase): R (reset), B (bootloader), M/V/P (dumps)
+  - ASCII → Scancode conversion via `ascii_to_scancode()`
+  - Scancode buffering via `push_scancode()`
+- **IRQ System**: Manages `current_irq_vector` (shared with cpu_bus.c)
+- **Keyboard buffer**: 16-byte circular buffer for scancodes
 
 **cpu.c/h** - i8086 CPU control:
 - `start_cpu_clock()`: PWM generation for i8086 clock (33% duty cycle)
 - `reset_cpu()`: RESET sequence (10 clocks LOW, 5 clocks stabilization)
 
 **cpu_bus.c/h** - Bus controller and memory emulation:
-- `cpu_bus_init()`: Loads PIO program, sets up IRQ handlers
-- `bus_read_handler()`: Services read requests (IRQ1)
+- `cpu_bus_init()`: Loads PIO program, sets up IRQ handlers at highest priority
+- `bus_read_handler()`: Services read requests (IRQ1) and INTA cycles (IRQ3)
 - `bus_write_handler()`: Services write requests (IRQ0)
-- `i8086_read()`: Highly optimized 16-bit memory/IO reads with aligned access
-- `i8086_write()`: Highly optimized 16-bit memory/IO writes with aligned access
-- 128KB RAM buffer (4-byte aligned), 8KB ROM (Turbo XT BIOS v3.1, 4-byte aligned)
-- 4KB Video RAM (MDA text mode, 0xB0000-0xB7FFF)
-- **Asynchronous logging**: `log_event()` function sends events to Core1 via FIFO
-- **Performance optimization**: Address alignment via `address & ~1U` for single 16-bit access
-- **FIFO efficiency**: Eliminated conditional branches in critical paths
-- **Port emulation**: VGA status register at 0x3BA with vsync bit toggling
+- `i8086_read()`: Highly optimized 16-bit memory/IO reads with `__force_inline`
+- `i8086_write()`: Highly optimized 16-bit memory/IO writes with `__force_inline`
+- **Memory layout**:
+  - 192KB RAM (4-byte aligned, 0x00000-0x2FFFF)
+  - 8KB ROM - Turbo XT BIOS v3.1 (4-byte aligned, 0xFE000-0xFFFFF)
+  - 4KB Video RAM - MDA text mode (4-byte aligned, 0xB0000-0xB7FFF)
+  - I/O ports array (2-byte aligned, 0x000-0xFFF)
+- **Performance optimization**:
+  - Direct 16-bit aligned access: `*(uint16_t *)&RAM[address]`
+  - Range check optimization: `(port & 0xFF0) == 0x60` for keyboard ports
+  - Local copies of volatile variables to minimize memory access
+- **Port emulation**:
+  - VGA status register (0x3BA) with vsync bit toggling
+  - Keyboard data/status ports (0x60, 0x64)
 
 **i8086_bus.pio** - Highly optimized PIO state machine implementing i8086 bus protocol:
 - Captures 20-bit address + control signals (25 GPIO)
@@ -164,54 +184,61 @@ Critical bus signals are hardcoded in `i8086_bus.pio`:
 - C initialization function at bottom (`i8086_bus_program_init`)
 
 **config.h** - Hardware configuration:
-- GPIO pin assignments
-- System clock (400 MHz)
-- i8086 clock frequency (500 KHz, changeable to 5 MHz for production)
-- PIO and IRQ settings
-- INTR/INTA/READY pin definitions
-- **Logging structures**: `log_entry_t`, `shared_log_buffer_t` for async event logging
-- **Circular buffer**: 256-entry log buffer with timestamp support
+- GPIO pin assignments (INTR_PIN=26, RESET_PIN=28, CLOCK_PIN=29)
+- System clock: 400 MHz (PICO_CLOCK_SPEED)
+- i8086 clock: 4 MHz (I8086_CLOCK_SPEED, configurable)
+- PIO and IRQ settings (BUS_CTRL_PIO, BUS_CTRL_SM, WRITE_IRQ, READ_IRQ)
+- Compiler hints: `likely()`, `unlikely()` macros for branch prediction optimization
 
-**pic.c/h** - 8259A PIC emulation (ИНТЕГРИРОВАНО В main.c/cpu_bus.c):
-- Функционал PIC интегрирован в `main.c` и `cpu_bus.c`
-- `pic_init()`: Инициализирует INTR пин, очищает FIFO, запускает Core1
-- `core1_irq_generator()`: Работает на Core1, выполняет две функции:
-  - Генерирует IRQ0 каждые ~5492ms (адаптировано для 500 КГц)
-  - Обрабатывает логи из FIFO и выводит их асинхронно
-  - В режиме 5 МГц: ~54.925ms (18.2 Hz, IBM PC стандарт)
-- **INTA обработка через PIO**: В `i8086_bus.pio` реализован `INTA_cycle`
-  - Использует IRQ 3 для синхронизации INTA протокола
-  - Автоматически управляет READY сигналом во время INTA
-  - Отправляет вектор прерывания (0x08 для IRQ0) через bus_read_handler
+**IRQ System** (интегрировано в main.c/cpu_bus.c):
+- `pic_init()`: Инициализирует INTR пин как output, устанавливает LOW
+- `bus_handler_core()`: Работает на Core1, выполняет:
+  - Инициализацию железа (clock → pic → bus → reset)
+  - Генерацию IRQ0 каждые 54.925ms (18.2 Hz, IBM PC 8253/8254 совместимость)
+  - Управление сигналом INTR на основе `current_irq_vector`
+- **Система управления прерываниями**:
+  - `current_irq_vector`: глобальная переменная (0xFF08 для IRQ0, 0xFF09 для IRQ1)
+  - Приоритет: IRQ0 (timer) устанавливается Core1, IRQ1 (keyboard) устанавливается Core0
+  - INTA обработка через PIO IRQ 3 → возврат вектора → сброс INTR
+- **Keyboard IRQ**:
+  - `push_scancode()` устанавливает `current_irq_vector = 0xFF09` при наличии данных
+  - Проверяет что вектор не занят: `if (!current_irq_vector)`
 
-**bios.h** - Turbo XT BIOS v3.1 (10/28/2017) ROM image (8KB array)
+**bios.h** - Turbo XT BIOS v3.1 (10/28/2017) ROM image:
+- 8KB array `BIOS[]` (renamed from GLABIOS_0_4_1_8T_ROM)
+- 4-byte aligned for optimal access
 
-**Видеопамять (НОВОЕ):**
-- `videoram[4096]`: 4KB видеопамять для текстового режима
-- Адресация: 0xB0000-0xB8000 (мониторный режим MDA)
-- Поддержка 16-битных и 8-битных операций записи
-- Отображение через USB командой 'V' в main.c
+**Keyboard System** (в main.c):
+- `keyboard_buffer[16]`: Circular buffer для скан-кодов
+- `kb_head`, `kb_tail`: Head/tail указатели (volatile для thread-safety)
+- `ascii_to_scancode()`: Конвертер ASCII → IBM PC/XT Scancode Set 1
+  - Поддержка a-z/A-Z (QWERTY раскладка)
+  - Поддержка цифр 0-9
+  - Специальные клавиши: Space, Enter, Backspace, Tab, Escape
+- `push_scancode()`: Добавление скан-кода в буфер + установка IRQ1
 
 ## Current Implementation Status
 
-**Implemented (Фаза 1 complete + performance optimizations + interrupts + видео + логирование):**
-- ✅ Clock generation on GPIO29 (PWM, 500 KHz, 33% duty cycle)
+**Implemented (Полная поддержка клавиатуры + оптимизированная архитектура):**
+- ✅ Clock generation on GPIO29 (PWM, 4 MHz, 33% duty cycle)
 - ✅ RESET sequence on GPIO28
 - ✅ Highly optimized PIO bus controller for i8086 (16-bit data bus, 20-bit address)
 - ✅ ROM emulation: 8KB Turbo XT BIOS v3.1 at 0xFE000-0xFFFFF (4-byte aligned)
-- ✅ RAM emulation: 128KB at 0x00000-0x1FFFF (4-byte aligned)
-- ✅ **Видеопамять**: 4KB at 0xB0000-0xB7FFF (MDA текстовый режим)
+- ✅ RAM emulation: 192KB at 0x00000-0x2FFFF (4-byte aligned)
+- ✅ **Видеопамять**: 4KB at 0xB0000-0xB7FFF (MDA текстовый режим, 60 FPS рендеринг)
 - ✅ Memory vs I/O address decoding (M/IO signal)
 - ✅ **Ultra-fast 16-bit bus operations** via aligned memory access
 - ✅ **BHE handling**: Полная поддержка 8/16 битных операций
 - ✅ **INTA через PIO**: Обработка прерываний через state machine (IRQ 3)
 - ✅ **INTR на GPIO26**: Генерация прерываний Core1
-- ✅ **Core1 IRQ generator + log processor** (асинхронный вывод логов)
-- ✅ **Асинхронное логирование**: Multicore FIFO, кольцевой буфер на 256 записей
-- ✅ **Real-time video output**: Вывод видеопамяти в терминал через ANSI
+- ✅ **IRQ System**: IRQ0 (timer 18.2 Hz) + IRQ1 (keyboard) с приоритетами
+- ✅ **Keyboard controller**: Порты 0x60/0x64, IBM PC/XT совместимость
+- ✅ **ASCII → Scancode converter**: QWERTY layout, буквы, цифры, спецклавиши
+- ✅ **Real-time video output**: 60 FPS вывод VIDEORAM через USB (Core0)
 - ✅ **VGA port emulation**: Порт 0x3BA с vsync битами
-- ✅ **Compiler optimizations**: -Ofast, copy_to_ram, size optimizations
-- 🚀 **100x performance boost**: 5 KHz → 500 KHz (готов к 5 MHz)
+- ✅ **Dual-core architecture**: Core0 (UI/keyboard), Core1 (bus/IRQ)
+- ✅ **Compiler optimizations**: -Ofast, copy_to_ram, likely/unlikely hints
+- 🚀 **Performance**: 4 MHz stable operation with keyboard & video
 
 **Not yet implemented (Фаза 2):**
 - ⚠️ Full 8259A register interface (ICW1-ICW4, OCW1-OCW3)
@@ -238,18 +265,34 @@ Add cases to `i8086_read()` and `i8086_write()` in `cpu_bus.c`. These functions 
 - bhe flag для 8/16 битных операций
 
 **Текущие порты:**
-- Порт 0x3BA: VGA status register (эмуляция vsync битов)
+- Порт 0x3BA: VGA status register (эмуляция vsync битов, приоритет проверки)
+- Порт 0x60: Keyboard Data Port (чтение скан-кодов из circular buffer)
+- Порт 0x64: Keyboard Status Port (bit 0 = данные доступны)
 - Порты 0x000-0xFFF: Общие порты (возвращают 0xFFFF для неопределенных портов)
+
+**Оптимизация проверки портов:**
+- VGA порт (0x3BA) проверяется первым (самый частый)
+- Клавиатурные порты (0x60-0x6F) проверяются диапазонной маской: `(port & 0xFF0) == 0x60`
+- Экономия 2-3 такта на каждой I/O операции
 
 ### USB Commands (main.c)
 
-- **'M'**: Дамп памяти (первые 400 байт RAM)
-- **'V'**: Дамп видеопамяти (первые 5 строк x 80 символов)
-- **'P'**: Дамп портов ввода-вывода (первые 400 байт)
-- **'R'**: Сброс CPU (очищает INTR и выполняет reset_cpu())
-- **'B'**: Перезагрузка RP2040 в bootloader mode
+**Специальные команды (uppercase, не отправляются в i8086):**
+- **'M'**: Дамп памяти (первые 1024 байт RAM)
+- **'V'**: Дамп видеопамяти (первые 5 строк × 80 символов)
+- **'P'**: Дамп портов ввода-вывода (первые 1024 байт)
+- **'R'**: Сброс CPU (сбрасывает INTR и выполняет reset_cpu())
+- **'B'**: Перезагрузка RP2040 в bootloader mode (для прошивки новой версии)
 
-**Note**: Видеопамять автоматически выводится в терминал в real-time через Core1
+**Обычный ввод (любые другие символы):**
+- Все символы, кроме uppercase команд, автоматически конвертируются в скан-коды
+- Отправляются в i8086 через keyboard buffer (порт 0x60)
+- Генерируется IRQ1 при добавлении скан-кода
+- Поддерживаемые символы: a-z, A-Z, 0-9, Space, Enter, Backspace, Tab, Escape
+
+**Автоматический вывод:**
+- Видеопамять (MDA 25×80) рендерится в терминал с частотой 60 FPS (Core0)
+- ANSI escape codes для позиционирования курсора
 
 ### Modifying PIO Bus Logic
 
@@ -261,28 +304,30 @@ Edit `i8086_bus.pio` carefully - PIO assembly is timing-sensitive:
 
 ### Performance Considerations
 
-**Current performance @ 400 MHz / 500 KHz i8086:**
-- Available: 3200 RP2040 ticks per i8086 bus cycle (at 500 KHz)
-- **Required with optimizations:** ~75 RP2040 ticks (40% improvement!)
-- Reserve: 42x (extremely safe, ready for 5 MHz operation)
-- CPU load: ~2.5% worst case at 500 KHz
-- **At 5 MHz**: 320 ticks available, ~75 required, 4.2x reserve, ~25% CPU load
+**Current performance @ 400 MHz RP2040 / 4 MHz i8086:**
+- Available: 100 RP2040 ticks per i8086 bus cycle (400 MHz / 4 MHz)
+- **Required with optimizations:** ~75 RP2040 ticks (measured)
+- Reserve: 1.33x (sufficient for stable operation)
+- CPU load: ~75% worst case (bus handlers + IRQ processing)
 
 **Performance achievements:**
-- Successfully running at 500 KHz (100x faster than initial 5 KHz)
-- Stable BIOS execution with vsync port emulation
-- Real-time video output to terminal
-- Zero blocking in IRQ handlers (async logging via FIFO)
+- Successfully running at 4 MHz (800x faster than initial 5 KHz)
+- Stable BIOS execution with full keyboard support
+- 60 FPS video rendering (Core0) + 18.2 Hz timer (Core1)
+- Zero blocking in IRQ handlers (optimized with `__force_inline` and `likely()`/`unlikely()`)
+- Keyboard input latency: <1ms (IRQ1 generation on scancode push)
 
 **Recent performance optimizations:**
-- ✅ **Address alignment optimization**: Single 16-bit memory access via `address & ~1U`
-- ✅ **Memory alignment**: 4-byte aligned arrays (`__attribute__((aligned(4)))`)
+- ✅ **Address alignment optimization**: Single 16-bit memory access via direct pointer cast
+- ✅ **Memory alignment**: 4-byte aligned arrays for RAM/ROM/VIDEORAM
 - ✅ **Eliminated conditional branches**: Direct memory access without boundary checks
 - ✅ **Optimized PIO timing**: Reduced instruction count and sideset delays
-- ✅ **Compiler optimizations**: -Ofast, -ffunction-sections, -fdata-sections
+- ✅ **Compiler optimizations**: -Ofast, -ffunction-sections, -fdata-sections, likely/unlikely
 - ✅ **RAM execution**: copy_to_ram binary mode for maximum speed
-- ✅ **Asynchronous logging**: Non-blocking event logging via multicore FIFO
-- ✅ **Reduced RAM**: 224KB → 128KB to free memory for logging buffers
+- ✅ **Increased RAM**: 128KB → 192KB (removed logging system overhead)
+- ✅ **Port range optimization**: Keyboard ports checked via `(port & 0xFF0) == 0x60`
+- ✅ **Volatile minimization**: Local copies of volatile variables in hot paths
+- ✅ **Inline functions**: `__force_inline` for i8086_read/write (eliminates call overhead)
 
 **General optimization tips:**
 - IRQ handlers run at highest priority (`PICO_HIGHEST_IRQ_PRIORITY`)
@@ -292,62 +337,86 @@ Edit `i8086_bus.pio` carefully - PIO assembly is timing-sensitive:
 
 ### Initialization Order (Critical!)
 
+**Core0 (main):**
 ```c
-start_cpu_clock();   // 1. Start clock first (PWM on GPIO29)
-reset_cpu();         // 2. Reset CPU (hold in reset while setting up)
-pic_init();          // 3. Initialize interrupt controller, clear FIFO, start Core1
-cpu_bus_init();      // 4. Initialize PIO and IRQ handlers last
-// CPU is now ready - it will start executing after reset is released
+// 1. System setup
+hw_set_bits(&vreg_and_chip_reset_hw->vreg, VREG_AND_CHIP_RESET_VREG_VSEL_BITS);
+set_sys_clock_hz(PICO_CLOCK_SPEED, true);   // Overclock to 400 MHz
+
+// 2. USB initialization
+stdio_usb_init();
+while (!stdio_usb_connected()) { ... }       // Wait for USB connection
+
+// 3. Launch Core1 (handles all hardware initialization)
+multicore_launch_core1(bus_handler_core);
+
+// 4. Main loop: video rendering + keyboard input
+while (true) { ... }
+```
+
+**Core1 (bus_handler_core) - критическая последовательность:**
+```c
+start_cpu_clock();   // 1. Start clock first (PWM on GPIO29, 4 MHz)
+pic_init();          // 2. Initialize INTR pin as output, set LOW
+cpu_bus_init();      // 3. Load PIO program, setup IRQ handlers
+reset_cpu();         // 4. Release i8086 from reset (NOW safe to start)
+// 5. Enter infinite loop: IRQ0 generation + INTR management
 ```
 
 Wrong order = i8086 starts before PIO is ready = bus conflicts!
 
 **Important notes:**
-- `pic_init()` launches Core1 and initializes the logging system
-- `pic_init()` clears multicore FIFO to prevent stale data
-- `cpu_bus_init()` must be last to ensure Core1 is ready for FIFO communication
-- Core1 starts immediately: generates IRQ0 + processes async logs
-- Reset clears INTR signal before CPU starts
+- Core1 handles ALL hardware initialization (clock, PIO, reset)
+- Core0 only launches Core1 and handles UI
+- `cpu_bus_init()` must be called BEFORE `reset_cpu()`
+- Reset is the LAST step (releases i8086 to start executing)
+- No multicore FIFO synchronization needed (simplified architecture)
 
 ### Memory Map
 
 ```
-0x00000 - 0x1FFFF : RAM (128KB) - **ОПТИМИЗИРОВАНО**
-0x20000 - 0xAFFFF : Unmapped (returns 0xFFFF)
-0xB0000 - 0xB7FFF : Video RAM MDA (4KB)
-0xB8000 - 0xFDFFF : Unmapped (returns 0xFFFF)
-0xFE000 - 0xFFFFF : ROM Turbo XT BIOS v3.1 (8KB)
+0x00000 - 0x2FFFF : RAM (192KB) - основная память, 4-byte aligned
+0x30000 - 0xAFFFF : Unmapped (returns 0xFFFF)
+0xB0000 - 0xB0FFF : Video RAM MDA (4KB) - текстовый режим 25×80
+0xB1000 - 0xFDFFF : Unmapped (returns 0xFFFF)
+0xFE000 - 0xFFFFF : ROM Turbo XT BIOS v3.1 (8KB) - 4-byte aligned
 ```
 
-Reset vector at 0xFFFF0 → points into ROM.
+**Особенности:**
+- Reset vector at 0xFFFF0 → points into ROM
+- RAM увеличена с 128KB до 192KB (удалена система логирования)
+- Video RAM адресуется через отдельный массив `VIDEORAM[4096]`
+- I/O порты эмулируются через массив `PORTS[0xFFF]` (2-byte aligned)
 
-### Logging System Architecture
+### IRQ Priority System
 
-**Асинхронное логирование событий шины:**
-- Core0 (IRQ handlers) → записывают события в кольцевой буфер
-- Core0 → Core1: отправка индекса через multicore FIFO (неблокирующая)
-- Core1 → читает события из буфера, форматирует и выводит через USB
-- **Преимущества**: Нулевая задержка в IRQ handlers, нет блокировок printf
+**Simplified IRQ Management:**
+- Single global variable: `current_irq_vector` (uint16_t)
+- Values: 0 (no IRQ), 0xFF08 (IRQ0 timer), 0xFF09 (IRQ1 keyboard)
+- Priority: IRQ0 > IRQ1 (enforced by conditional check in `push_scancode()`)
 
-**Структуры данных:**
+**IRQ0 (Timer) - Core1:**
 ```c
-typedef struct {
-    uint64_t timestamp;   // Счетчик событий для отладки
-    log_type_t type;      // LOG_READ, LOG_WRITE, LOG_INTA
-    uint32_t address;     // 20-битный адрес
-    uint16_t data;        // 16-битные данные
-    bool bhe;             // Состояние BHE
-    bool mio;             // Состояние MIO
-} log_entry_t;
-
-typedef struct {
-    log_entry_t buffer[256];      // Кольцевой буфер
-    volatile uint32_t head;       // Указатель записи
-} shared_log_buffer_t;
+if (absolute_time_diff_us(next_irq0, get_absolute_time()) >= 0) {
+    current_irq_vector = 0xFF08;  // Unconditionally set (highest priority)
+    next_irq0 = delayed_by_us(next_irq0, 54925);
+}
 ```
 
-**Особенности реализации:**
-- Только события видеопамяти (0xB0000-0xB7FFF) логируются для оптимизации
-- FIFO заполняется только при наличии места (неблокирующая проверка)
-- Core1 выводит символы в терминал через ANSI escape sequences
-- Формат вывода: `\x1b[row;col]Hchar` для позиционирования
+**IRQ1 (Keyboard) - Core0:**
+```c
+void push_scancode(uint8_t scancode) {
+    // ... buffer management ...
+    if (!current_irq_vector) {  // Only set if no IRQ pending
+        current_irq_vector = 0xFF09;
+    }
+}
+```
+
+**INTR Management - Core1:**
+```c
+if (current_irq_vector) {
+    gpio_put(INTR_PIN, 1);  // Raise INTR to i8086
+}
+// Cleared by bus_read_handler() on INTA cycle
+```
