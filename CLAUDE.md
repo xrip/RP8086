@@ -103,13 +103,29 @@ The project uses RP2040's dual-core capability with clearly separated responsibi
 
 ### Bus Protocol Flow
 
-**Read Cycle:**
+**Read Cycle (with ISA-compatibility protocol):**
 1. PIO latches address on ALE signal
-2. PIO raises WAIT (READY=1) to hold CPU
+2. PIO raises WAIT (READY=0) to hold CPU
 3. PIO triggers IRQ1 when RD active
-4. ARM handler reads address from FIFO, returns data
-5. PIO outputs data and drops WAIT (READY=0)
-6. PIO returns data bus to high-Z after RD inactive
+4. ARM handler reads address from FIFO
+5. **ARM sends 32-bit response: [data:16][pindirs_mask:16]**
+   - Current implementation: always `(data << 16) | 0xFFFF` (all addresses handled by RP2040)
+   - Future ISA mode: `0x00000000` for addresses handled by external ISA devices
+6. PIO applies pindirs mask (0xFFFF → outputs, 0x0000 → high-Z for ISA devices)
+7. PIO outputs data and drops WAIT (READY=1)
+8. PIO returns data bus to high-Z after RD inactive
+
+**32-bit Protocol Format:**
+```
+Bits [31:16] = Data to output on AD0-AD15
+Bits [15:0]  = Pin direction mask (0xFFFF = our address, 0x0000 = ISA device)
+```
+
+**ISA-Compatibility Design:**
+- When mask = 0x0000: AD0-AD15 remain in high-Z (input mode)
+- External ISA devices can drive the bus without conflict
+- READY signal still controlled by PIO (limitation: need external logic for full ISA support)
+- Future enhancement: external pull-up resistors on AD0-AD15 for proper open-collector behavior
 
 **Write Cycle:**
 1. PIO latches address on ALE signal
@@ -159,6 +175,8 @@ Critical bus signals are hardcoded in `i8086_bus.pio`:
 **cpu_bus.c/h** - Bus controller and memory emulation:
 - `cpu_bus_init()`: Loads PIO program, sets up IRQ handlers at highest priority
 - `bus_read_handler()`: Services read requests (IRQ1) and INTA cycles (IRQ3)
+  - Returns 32-bit value: `(data << 16) | 0xFFFF` (all addresses currently handled by RP2040)
+  - Protocol ready for ISA expansion: can return `0x00000000` for external device addresses
 - `bus_write_handler()`: Services write requests (IRQ0)
 - `i8086_read()`: Highly optimized 16-bit memory/IO reads with `__force_inline`
 - `i8086_write()`: Highly optimized 16-bit memory/IO writes with `__force_inline`
@@ -177,10 +195,13 @@ Critical bus signals are hardcoded in `i8086_bus.pio`:
 
 **i8086_bus.pio** - Highly optimized PIO state machine implementing i8086 bus protocol:
 - Captures 20-bit address + control signals (25 GPIO)
+- **32-bit protocol**: ARM→PIO format is [data:16][pindirs_mask:16] for ISA-compatibility
 - **Optimized polling**: Reduced cycle count in RD/WR detection loop
 - **Efficient timing**: Sideset delays combined with IRQ operations
-- **Smart data handling**: Uses single 16-bit aligned memory access
-- **Consistent naming**: Standardized WR_cycle/RD_cycle labels
+- **ISA-ready**: pindirs mask allows external devices to drive bus (when mask=0x0000)
+- **Instruction count**: 29 out of 32 available (3 instructions reserve for future)
+- **Smart data handling**: Direct pindirs/pins output without conditional jumps
+- **Consistent naming**: Standardized WR_cycle/RD_cycle/INTA_cycle labels
 - C initialization function at bottom (`i8086_bus_program_init`)
 
 **config.h** - Hardware configuration:
@@ -322,6 +343,9 @@ Edit `i8086_bus.pio` carefully - PIO assembly is timing-sensitive:
 - ✅ **Memory alignment**: 4-byte aligned arrays for RAM/ROM/VIDEORAM
 - ✅ **Eliminated conditional branches**: Direct memory access without boundary checks
 - ✅ **Optimized PIO timing**: Reduced instruction count and sideset delays
+- ✅ **32-bit protocol optimization**: Removed conditional jumps in PIO RD_cycle (13→8 instructions)
+- ✅ **ISA-ready architecture**: pindirs mask allows future external device support
+- ✅ **PIO instruction count**: 29/32 used (reserve 3 for future features)
 - ✅ **Compiler optimizations**: -Ofast, -ffunction-sections, -fdata-sections, likely/unlikely
 - ✅ **RAM execution**: copy_to_ram binary mode for maximum speed
 - ✅ **Increased RAM**: 128KB → 192KB (removed logging system overhead)

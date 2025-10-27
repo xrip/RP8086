@@ -161,7 +161,7 @@ void __time_critical_func(bus_read_handler)() {
                 // Обычное чтение памяти/портов. Хак для 16 битного чтения с помощью 0xFFFFE
                 data = i8086_read(bus_state & 0xFFFFE, bus_state & MIO);
             }
-            pio_sm_put_blocking(BUS_CTRL_PIO, BUS_CTRL_SM, data);
+            pio_sm_put_blocking(BUS_CTRL_PIO, BUS_CTRL_SM, data << 16 | 0xFFFF);
             // log_event(LOG_READ, bus_state & 0xFFFFE, data, bus_state & (1 << 25), bus_state & (1 << 24));
         }
 
