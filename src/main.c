@@ -145,7 +145,6 @@ void pic_init(void) {
     busy_wait_at_least_cycles((SYS_CLK_VREG_VOLTAGE_AUTO_ADJUST_DELAY_US * (uint64_t) XOSC_HZ) / 1000000);
     set_sys_clock_hz(PICO_CLOCK_SPEED, true);
     // busy_wait_ms(250); // Даем время стабилизироваться напряжению
-
     stdio_usb_init();
     while (!stdio_usb_connected()) { tight_loop_contents(); }
 
@@ -155,9 +154,11 @@ void pic_init(void) {
     absolute_time_t next_frame = get_absolute_time();
     next_frame = delayed_by_us(next_frame, 16666);
 
+    bool video_enabled = true;
+
     while (true) {
         // Отрисовка MDA фреймбуфера
-        if (absolute_time_diff_us(next_frame, get_absolute_time()) >= 0) {
+        if (video_enabled && absolute_time_diff_us(next_frame, get_absolute_time()) >= 0) {
             next_frame = delayed_by_us(next_frame, 16666);
 
             printf("\033[2J\033[H");
@@ -172,7 +173,9 @@ void pic_init(void) {
         int c = getchar_timeout_us(0);
 
         // Special debug commands (uppercase variants)
-        if (c == 'R') {
+        if (c == '`') {
+            video_enabled = !video_enabled;
+        } else if (c == 'R') {
             printf("\033[2JReseting cpu\n");
             gpio_put(INTR_PIN, 0); // По умолчанию LOW
             reset_cpu();
