@@ -456,6 +456,8 @@ if (current_irq_vector) {
 - **Intel 8086**: [`docs/intel_8086_specs.json`](docs/intel_8086_specs.json) - Полная спецификация процессора, пины, регистры, временные диаграммы
 - **Intel 8259A**: [`docs/intel_8259a_specs.json`](docs/intel_8259a_specs.json) - Контроллер прерываний, регистры ICW/OCW, каскадное подключение
 - **Intel 8253**: [`docs/intel_8253_specs.json`](docs/intel_8253_specs.json) - Программируемый таймер, 6 режимов работы, порты I/O
+- **Intel 8237A**: [`docs/intel_8237a_specs.json`](docs/intel_8237a_specs.json) - DMA контроллер, 4 канала, приоритеты, режимы передачи
+- **Intel 8272A**: [`docs/intel_8272a_specs.json`](docs/intel_8272a_specs.json) - Контроллер дискет, команды чтения/записи, форматы дисков
 
 **Использование:**
 ```bash
@@ -463,6 +465,8 @@ if (current_irq_vector) {
 cat docs/intel_8086_specs.json | jq '.intel_8086_specifications.pin_configuration'
 cat docs/intel_8259a_specs.json | jq '.intel_8259a_specifications.register_map'
 cat docs/intel_8253_specs.json | jq '.intel_8253_specifications.operating_modes'
+cat docs/intel_8237a_specs.json | jq '.intel_8237a_specifications.transfer_modes'
+cat docs/intel_8272a_specs.json | jq '.intel_8272a_specifications.commands'
 ```
 
 **Key References:**
