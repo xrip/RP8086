@@ -2,15 +2,17 @@
 
 #include "cpu.h"
 #include "cpu_bus.h"
-#include "config.h"
+#include "common.h"
 #include "hardware/watchdog.h"
 #include "pico/bootrom.h"
 #include "pico/multicore.h"
 
-
-extern uint8_t RAM[] __attribute__((aligned(4)));
-extern uint8_t PORTS[] __attribute__((aligned(4)));
-extern uint8_t VIDEORAM[] __attribute__((aligned(4)));
+// ============================================================================
+// Global Memory Arrays
+// ============================================================================
+uint8_t RAM[RAM_SIZE] __attribute__((aligned(4)));
+uint8_t VIDEORAM[4096] __attribute__((aligned(4)));
+uint8_t PORTS[0xFFF] __attribute__((aligned(4))) = {[0 ... 0xFFE] = 0xFF};
 
 // ============================================================================
 // IRQ System - Simple Version
