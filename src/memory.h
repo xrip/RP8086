@@ -1,7 +1,7 @@
 #pragma once
 #include "common.h"
-#include "../rom/bios.h"
-#include "../rom/basic.h"
+#include "rom/bios.h"
+#include "rom/basic.h"
 
 // ============================================================================
 // External Memory Arrays
