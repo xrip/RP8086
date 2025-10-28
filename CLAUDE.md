@@ -469,6 +469,9 @@ cat docs/intel_8237a_specs.json | jq '.intel_8237a_specifications.transfer_modes
 cat docs/intel_8272a_specs.json | jq '.intel_8272a_specifications.commands'
 ```
 
+**Architecture Reference:**
+- **System Architecture**: [`docs/i8086_architecture_reference.json`](docs/i8086_architecture_reference.json) - Полное руководство по архитектуре взаимодействия компонентов
+
 **Key References:**
 - IBM PC compatible interrupt vectors (IRQ0 = 0x08, IRQ1 = 0x09)
 - 8253 system timer configuration (18.2 Hz, port 0x40-0x43)
