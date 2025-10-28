@@ -13,12 +13,7 @@ extern volatile uint8_t current_scancode;
 // ROM configuration
 #define BIOS_ROM_SIZE          sizeof(BIOS) // 8K BIOS
 #define BIOS_ROM_BASE          (0x100000 - BIOS_ROM_SIZE)   // 0xFE000-0xFFFFF
-#define BIOS_ROM_MASK          (BIOS_ROM_SIZE - 1)          // 0x1FFF
-#define BIOS_ROM_MASK_16BIT    (BIOS_ROM_SIZE - 2)          // 0x1FFE
-
-#define RAM_SIZE         (128 * 1024)                       // KB
-#define RAM_MASK         (RAM_SIZE - 1)                     // 0xFFFF
-#define RAM_MASK_16BIT   (RAM_SIZE - 2)                     // 0xFFFE
+#define RAM_SIZE               (192 * 1024)                       // KB
 
 // Удобные макросы для вычисления пинов
 #define MIO (1 << 24)
@@ -26,7 +21,13 @@ extern volatile uint8_t current_scancode;
 
 uint8_t RAM[RAM_SIZE] __attribute__((aligned(4)));
 uint8_t VIDEORAM[4096] __attribute__((aligned(4)));
-uint8_t PORTS[0xfff] __attribute__((aligned(2))) = {0xFF};
+uint8_t PORTS[0xfff] __attribute__((aligned(4))) = {0xFF};
+
+// VGA status port state (вынесено из функции для оптимизации доступа)
+static uint8_t port3DA = 0;
+
+// INTA pending IRQ vector (вынесено для минимизации memory access overhead)
+static uint16_t irq_pending_vector = 0;
 
 __always_inline void write_to(uint8_t *destination, const uint32_t address, const uint16_t data, const bool bhe) {
     const bool A0 = address & 1;
@@ -43,33 +44,35 @@ __force_inline static uint16_t i8086_read(const uint32_t address, const bool is_
     if (is_memory_access) {
         if (address < RAM_SIZE) {
             return *(uint16_t *) &RAM[address];
-        } else if (address >= 0xB0000 && address < 0xB8000) {
+        }
+        // Оптимизация: одна проверка через вычитание вместо двух сравнений
+        // (address - 0xB0000) < 0x8000 эквивалентно: address >= 0xB0000 && address < 0xB8000
+        if ((address - 0xB0000) < 0x8000) {
             return *(uint16_t *) &VIDEORAM[address & 4094];
-        } else if (address >= 0xF6000 && address < BIOS_ROM_BASE) {
+        }
+        // BASIC ROM: 0xF6000-0xFDFFF (используем вычитание для одной проверки)
+        if ((address - 0xF6000) < (BIOS_ROM_BASE - 0xF6000)) {
             return *(uint16_t *) &BASIC[address - 0xF6000];
-        } else if (address >= BIOS_ROM_BASE) {
+        }
+        if (address >= BIOS_ROM_BASE) {
             return *(uint16_t *) &BIOS[address - BIOS_ROM_BASE];
         }
         // Unmapped memory
         return 0xFFFF;
     } else {
         // I/O access
-        static uint8_t port3DA = 0;
-
         switch (address & 0xFFE) {
-            case 0x3BA: {
-                // MDA status port
+            case 0x3BA: { // MDA status port
+
                 return port3DA ^= 9;
             }
-            case 0x60: {
-                // Keyboard Data Port - читаем скан-код и сбрасываем
+            case 0x60: { // Keyboard Data Port - читаем скан-код и сбрасываем
                 const uint8_t scancode = current_scancode;
-                current_scancode = 0; // Сбросить после чтения
+                current_scancode = 0;
                 return scancode;
             }
-            case 0x64: {
-                // Keyboard Status Port - bit 0 = данные доступны
-                return current_scancode ? 0x01 : 0x00;
+            case 0x64: { // Keyboard Status Port - bit 0 = данные доступны
+                return current_scancode != 0;  // Упрощено: компилятор генерирует оптимальный код
             }
             default:
                 return 0xFFFF;
@@ -77,13 +80,14 @@ __force_inline static uint16_t i8086_read(const uint32_t address, const bool is_
     }
 }
 
-
 __force_inline static void i8086_write(const uint32_t address, const uint16_t data, const bool is_memory_access, const bool bhe) {
     if (is_memory_access) {
         // Memory write
         if (address < RAM_SIZE) {
             write_to(RAM, address, data, bhe);
-        } else if (address >= 0xB0000 && address < 0xB8000) {
+        }
+        // Оптимизация: одна проверка вместо двух для видеопамяти
+        else if ((address - 0xB0000) < 0x8000) {
             write_to(VIDEORAM, address & 0xFFF, data, bhe);
         }
     } else {
@@ -93,32 +97,33 @@ __force_inline static void i8086_write(const uint32_t address, const uint16_t da
 }
 
 void __time_critical_func(bus_write_handler)() {
-    while (pio_sm_get_rx_fifo_level(BUS_CTRL_PIO, BUS_CTRL_SM) >= 2) {
-        // First FIFO entry: address + control signals
-        const uint32_t bus_state = pio_sm_get_blocking(BUS_CTRL_PIO, BUS_CTRL_SM);
+    // Упрощено: обрабатываем ровно одну транзакцию.
+    // PIO генерирует IRQ на каждую запись, поэтому цикл избыточен.
+    // Это уменьшает register pressure и упрощает IRQ prologue/epilogue.
+    const uint32_t bus_state = BUS_CTRL_PIO->rxf[BUS_CTRL_SM];
+    const uint16_t data = BUS_CTRL_PIO->rxf[BUS_CTRL_SM];
 
-        // Second FIFO entry: data from AD0-AD15
-        const uint16_t data = pio_sm_get_blocking(BUS_CTRL_PIO, BUS_CTRL_SM);
-        i8086_write(bus_state & 0xFFFFF, data, bus_state & MIO, bus_state & BHE);
-        // log_event(LOG_WRITE, bus_state & 0xFFFFF, data, bus_state & (1 << 25), bus_state & (1 << 24));
-    }
+    i8086_write(bus_state & 0xFFFFF, data, bus_state & MIO, bus_state & BHE);
+
     pio_interrupt_clear(BUS_CTRL_PIO, 0);
 }
 
 void __time_critical_func(bus_read_handler)() {
-    static uint16_t irq_pending = false;
     if (pio_interrupt_get(BUS_CTRL_PIO, 1)) {
-        // FIFO entry: address + control signals
-        const uint32_t bus_state = pio_sm_get_blocking(BUS_CTRL_PIO, BUS_CTRL_SM);
+        // Прямой доступ к FIFO. pio_interrupt_get() уже подтвердил что данные есть,
+        // повторная проверка в pio_sm_get_blocking() избыточна.
+        const uint32_t bus_state = BUS_CTRL_PIO->rxf[BUS_CTRL_SM];
 
         // Read data and send back to PIO
-        if (unlikely(irq_pending)) {
+        // Прямая запись в TX FIFO без проверки заполненности.
+        // PIO заблокирован на 'pull block' и активно ждёт наши данные, TX FIFO точно не полон.
+        if (unlikely(irq_pending_vector)) {
             // INTA: возвращаем вектор прерывания (0x08 для IRQ0, 0x09 для IRQ1)
-            pio_sm_put_blocking(BUS_CTRL_PIO, BUS_CTRL_SM, irq_pending << 16 | 0x00FF);
-            irq_pending = 0;
+            BUS_CTRL_PIO->txf[BUS_CTRL_SM] = irq_pending_vector << 16 | 0x00FF;
+            irq_pending_vector = 0;
         } else {
             // Обычное чтение памяти/портов.
-            pio_sm_put_blocking(BUS_CTRL_PIO, BUS_CTRL_SM, i8086_read(bus_state & 0xFFFFE, bus_state & MIO) << 16 | 0xFFFF);
+            BUS_CTRL_PIO->txf[BUS_CTRL_SM] = i8086_read(bus_state & 0xFFFFE, bus_state & MIO) << 16 | 0xFFFF;
         }
 
         // TODO если мы не можем обработать адрес, вместо того чтобы _НЕ_ перключать пины на выход - можно выполнить следующий код, чтобы отпустить шину
@@ -132,7 +137,7 @@ void __time_critical_func(bus_read_handler)() {
         // INTA cycle
         pio_interrupt_clear(BUS_CTRL_PIO, 3);
 
-        irq_pending = current_irq_vector;
+        irq_pending_vector = current_irq_vector;
         current_irq_vector = 0;
     }
 }

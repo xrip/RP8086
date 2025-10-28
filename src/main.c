@@ -6,6 +6,8 @@
 #include "hardware/watchdog.h"
 #include "pico/bootrom.h"
 #include "pico/multicore.h"
+
+
 extern uint8_t RAM[] __attribute__((aligned(4)));
 extern uint8_t PORTS[] __attribute__((aligned(4)));
 extern uint8_t VIDEORAM[] __attribute__((aligned(4)));
@@ -13,12 +15,12 @@ extern uint8_t VIDEORAM[] __attribute__((aligned(4)));
 // ============================================================================
 // IRQ System - Simple Version
 // ============================================================================
-uint16_t  current_irq_vector = 0; // 0=IRQ0(timer), 1=IRQ1(keyboard)
+uint16_t current_irq_vector = 0; // 0=IRQ0(timer), 1=IRQ1(keyboard)
 
 // ============================================================================
 // Keyboard - Single Scancode (no buffer needed for human input)
 // ============================================================================
-volatile uint8_t current_scancode = 0;  // 0 = нет данных
+volatile uint8_t current_scancode = 0; // 0 = нет данных
 
 // ============================================================================
 // ASCII to Scancode (IBM PC/XT Set 1) - Simplified
@@ -72,7 +74,7 @@ static uint8_t ascii_to_scancode(const int ascii) {
         case '\t': return 0x0F; // Tab
         case 27: return 0x01; // Escape
 
-            // Symbols without Shift
+        // Symbols without Shift
         case '-': return 0x0C; // Minus
         case '=': return 0x0D; // Equals
         case '[': return 0x1A; // Left bracket
@@ -100,13 +102,14 @@ static void push_scancode(const uint8_t scancode) {
         current_irq_vector = (0xFF00 | 8) + 1; // IRQ 1
     }
 }
+
 void pic_init(void) {
     // Настройка INTR как выход
     gpio_init(INTR_PIN);
     gpio_set_dir(INTR_PIN, GPIO_OUT);
     gpio_put(INTR_PIN, 0); // По умолчанию LOW
-
 }
+
 // ============================================================================
 // Core1: Обработка i8086_bus
 // ============================================================================
@@ -162,8 +165,8 @@ void pic_init(void) {
             next_frame = delayed_by_us(next_frame, 16666);
 
             printf("\033[2J\033[H");
-            for (int y = 0; y < 25 ; y++) {
-                for (int x = 0; x < 160; x+=2) {
+            for (int y = 0; y < 25; y++) {
+                for (int x = 0; x < 160; x += 2) {
                     printf("%c", VIDEORAM[__fast_mul(y, 160) + x]);
                 }
                 printf("\n");

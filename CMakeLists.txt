@@ -7,14 +7,23 @@ set(OUTPUT_DIR "${CMAKE_SOURCE_DIR}/bin/${CMAKE_BUILD_TYPE}")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${OUTPUT_DIR}")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${OUTPUT_DIR}")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${OUTPUT_DIR}")
+set(PICO_FLASH_SIZE_BYTES 16777216)
 
 include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
 
 project(RP8086 C CXX ASM)
 
 pico_sdk_init()
-add_compile_options(-ffunction-sections -fdata-sections -Ofast) # size optimizations
-#add_link_options(-flto -fwhole-program)
+add_compile_options(
+#        -flto=auto
+#        -fwhole-program
+#        -ffunction-sections
+#        -fdata-sections
+        -Ofast
+)
+
+add_link_options(-flto -fwhole-program)
+
 add_executable(${PROJECT_NAME}
         src/main.c
         src/cpu.c
@@ -25,13 +34,12 @@ pico_define_boot_stage2(slower_boot ${PICO_DEFAULT_BOOT_STAGE2_FILE})
 target_compile_definitions(slower_boot PRIVATE PICO_FLASH_SPI_CLKDIV=4)
 pico_set_boot_stage2(${PROJECT_NAME} slower_boot)
 
-# 16megs of flash on purple pico clones
 target_compile_definitions(${PROJECT_NAME} PRIVATE
         PICO_FLASH_SIZE_BYTES=16777216
-        #        PICO_PRINTF_ALWAYS_INCLUDED=0
+        PICO_PRINTF_ALWAYS_INCLUDED=0
         #        PICO_STACK_SIZE=1024
         #        PICO_HEAP_SIZE=1024
-        #PICO_PANIC_FUNCTION=
+        PICO_PANIC_FUNCTION=0
 )
 
 
@@ -54,7 +62,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
         pico_multicore
         hardware_pio
         hardware_pwm
-        -Wl,--wrap=atexit # size optimizations
+#        -Wl,--wrap=atexit,--wrap=abort,--strip-all,--gc-sections # size optimizations
 )
 pico_set_binary_type(${PROJECT_NAME} copy_to_ram)
 

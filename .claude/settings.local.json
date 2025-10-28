@@ -4,7 +4,12 @@
       "Bash(cmake --build:*)",
       "Bash(git log:*)",
       "Bash(git checkout:*)",
-      "Bash(git merge:*)"
+      "Bash(git merge:*)",
+      "Bash(arm-none-eabi-objdump:*)",
+      "Bash(rm:*)",
+      "Bash(cmake:*)",
+      "Bash(ninja)",
+      "Read(//c//**)"
     ],
     "deny": [],
     "ask": []
