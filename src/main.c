@@ -54,12 +54,37 @@ static uint8_t ascii_to_scancode(const int ascii) {
     }
     // Special keys
     switch (ascii) {
+        case '!': return 0x41; // "
+        case '@': return 0x3f; // "
+        case '#': return 0x3d; // "
+        case '$': return 0x3b; // "
+        case '%': return 0x3c; // "
+        case '^': return 0x58; // "
+        case '&': return 0x64; // "
+        case '(': return 0x42; // "
+        case ')': return 0x4; // "
+        case '"': return 0x68; // "
+
         case ' ': return 0x39; // Space
         case '\r':
         case '\n': return 0x1C; // Enter
         case '\b': return 0x0E; // Backspace
         case '\t': return 0x0F; // Tab
         case 27: return 0x01; // Escape
+
+            // Symbols without Shift
+        case '-': return 0x0C; // Minus
+        case '=': return 0x0D; // Equals
+        case '[': return 0x1A; // Left bracket
+        case ']': return 0x1B; // Right bracket
+        case ';': return 0x27; // Semicolon
+        case '\'': return 0x28; // Single quote
+        case '`': return 0x29; // Backtick
+        case '\\': return 0x2B; // Backslash
+        case ',': return 0x33; // Comma
+        case '.': return 0x34; // Period
+        case '/': return 0x35; // Slash
+        case '*': return 0x37;
         default: return 0x00; // Unknown
     }
 }
