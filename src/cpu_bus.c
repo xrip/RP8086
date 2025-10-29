@@ -3,9 +3,7 @@
 #include "common.h"
 #include "memory.h"
 #include "ports.h"
-
-// IRQ management (from main.c)
-extern uint16_t current_irq_vector;
+#include "hardware/i8259.h"
 
 // INTA pending IRQ vector (вынесено для минимизации memory access overhead)
 static uint16_t irq_pending_vector = 0;
@@ -68,8 +66,11 @@ void __time_critical_func(bus_read_handler)() {
         // INTA cycle (первый INTA pulse от CPU)
         pio_interrupt_clear(BUS_CTRL_PIO, 3);
 
-        irq_pending_vector = current_irq_vector;
-        current_irq_vector = 0;
+        // Получаем вектор прерывания от i8259
+        const uint8_t vector = i8259_nextirq();
+        if (vector) {
+            irq_pending_vector = 0xFF00 | vector;  // Формат: 0xFF00 | вектор
+        }
     }
 }
 

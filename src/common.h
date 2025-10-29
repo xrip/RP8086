@@ -84,5 +84,4 @@ typedef struct {
     uint8_t priority_level; //which IRQ has highest priority
     uint8_t automatic_end_of_interrupt; //automatic EOI mode
     uint8_t register_read_mode; //remember what to return on read register from OCW3
-    uint8_t controller_enabled;
 } i8259_s;

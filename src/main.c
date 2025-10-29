@@ -16,13 +16,13 @@ uint8_t VIDEORAM[4096] __attribute__((aligned(4)));
 uint8_t PORTS[0xFFF] __attribute__((aligned(4))) = {[0 ... 0xFFE] = 0xFF};
 
 i8259_s i8259 = {
-    .interrupt_vector_offset = 8,
+    .interrupt_mask_register = 0xFF, // Все IRQ замаскированы по умолчанию
+    .interrupt_vector_offset = 0x08, // Стандартный offset для IBM PC
 };
 
 // ============================================================================
-// IRQ System - Simple Version
+// IRQ System - Intel 8259A Compatible Controller
 // ============================================================================
-uint16_t current_irq_vector = 0; // 0=IRQ0(timer), 1=IRQ1(keyboard)
 
 // ============================================================================
 // Keyboard - Single Scancode (no buffer needed for human input)
@@ -105,9 +105,7 @@ static void push_scancode(const uint8_t scancode) {
     if (scancode == 0x00) return; // Ignore unknown keys
 
     current_scancode = scancode;
-    if (!current_irq_vector) {
-        current_irq_vector = (0xFF00 | 8) + 1; // IRQ 1
-    }
+    i8259_interrupt(1); // IRQ1 - Keyboard interrupt через i8259
 }
 
 void pic_init(void) {
@@ -143,7 +141,7 @@ void pic_init(void) {
         // ═══════════════════════════════════════════════════════
         // 2. Управление сигналом INTR (проверка pending IRQ в IRR)
         // ═══════════════════════════════════════════════════════
-        gpio_put(INTR_PIN, current_irq_vector ? 1 : 0);
+        gpio_put(INTR_PIN, i8259_get_pending_irqs() ? 1 : 0);
 
         tight_loop_contents();
     }
