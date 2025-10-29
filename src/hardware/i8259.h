@@ -19,6 +19,25 @@ __force_inline static uint8_t i8259_get_pending_irqs() {
     return i8259.interrupt_request_register & ~i8259.interrupt_mask_register;
 }
 
+/*
+__force_inline static uint8_t i8259_get_pending_irqs() {
+// Базовые pending прерывания (IRR & ~IMR)
+uint8_t pending = i8259.interrupt_request_register & ~i8259.interrupt_mask_register;
+
+// Если есть прерывание в обслуживании, применить Fully Nested приоритеты
+if (i8259.in_service_register && pending) {
+// Найти наивысший приоритет в ISR (наименьший номер бита)
+uint8_t highest_isr_bit = __builtin_ctz(i8259.in_service_register);
+
+// Блокировать все более низкие приоритеты (биты старше)
+// Пример: если ISR[2] = 1, заблокировать биты 3-7
+uint8_t block_mask = ~((1 << (highest_isr_bit + 1)) - 1);
+pending &= block_mask;
+}
+
+return pending;
+}
+*/
 __force_inline static void i8259_write(const uint16_t port_number, const uint8_t register_value) {
     switch (port_number) {
         case 0x20:

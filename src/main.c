@@ -13,9 +13,9 @@
 // ============================================================================
 uint8_t RAM[RAM_SIZE] __attribute__((aligned(4)));
 uint8_t VIDEORAM[4096] __attribute__((aligned(4)));
-uint8_t PORTS[0xFFF] __attribute__((aligned(4))) = {[0 ... 0xFFE] = 0xFF};
+uint8_t PORTS[0xFFF] __attribute__((aligned(4)));
 
-i8259_s i8259 = {
+i8259_s i8259 __attribute__((aligned(4))) = {
     .interrupt_mask_register = 0xFF, // Все IRQ замаскированы по умолчанию
     .interrupt_vector_offset = 0x08, // Стандартный offset для IBM PC
 };
@@ -141,7 +141,7 @@ void pic_init(void) {
         // ═══════════════════════════════════════════════════════
         // 2. Управление сигналом INTR (проверка pending IRQ в IRR)
         // ═══════════════════════════════════════════════════════
-        gpio_put(INTR_PIN, i8259_get_pending_irqs() ? 1 : 0);
+        gpio_put(INTR_PIN, i8259_get_pending_irqs());
 
         tight_loop_contents();
     }
