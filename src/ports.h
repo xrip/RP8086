@@ -38,9 +38,26 @@ __force_inline static uint8_t port_read8(const uint32_t address) {
 // Port Read (16-bit)
 // ============================================================================
 __force_inline static uint16_t port_read(const uint32_t address, const bool bhe) {
-    // I/O access
-    // TODO: Обработка A0 и BHE для ускорения
-    return port_read8(address) | port_read8(address + 1) << 8;
+    // Оптимизация: проверяем A0 и BHE для выбора 8/16-битного пути
+    const bool a0 = address & 1;
+
+    // BHE=0, A0=0 -> 16-битная операция word (оба байта)
+    if (likely(!bhe && !a0)) {
+        return port_read8(address) | (port_read8(address + 1) << 8);
+    }
+
+    // BHE=1, A0=0 -> 8-битная операция low byte (старший байт выключен)
+    if (unlikely(bhe && !a0)) {
+        return port_read8(address);
+    }
+
+    // BHE=0, A0=1 -> 8-битная операция high byte (нечетный адрес)
+    if (unlikely(!bhe && a0)) {
+        return port_read8(address) << 8;
+    }
+
+    // BHE=1, A0=1 -> невалидная комбинация (не используется в i8086)
+    return 0xFFFF;
 }
 
 __force_inline static void port_write8(const uint32_t address, const uint8_t data, const bool bhe) {
@@ -54,8 +71,26 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
 // Port Write (16-bit with BHE support)
 // ============================================================================
 __force_inline static void port_write(const uint32_t address, const uint16_t data, const bool bhe) {
-    // I/O write - store to ports array
-    // TODO Обработка A0 и BHE дял ускорения
-    port_write8(address, data, bhe);
-    port_write8(address + 1, data >> 8, bhe);
+    // Оптимизация: проверяем A0 и BHE для выбора 8/16-битного пути
+    const bool a0 = address & 1;
+
+    // BHE=0, A0=0 -> 16-битная операция word (оба байта)
+    if (likely(!bhe && !a0)) {
+        port_write8(address, data, bhe);
+        port_write8(address + 1, data >> 8, bhe);
+        return;
+    }
+
+    // BHE=1, A0=0 -> 8-битная операция low byte (старший байт выключен)
+    if (unlikely(bhe && !a0)) {
+        port_write8(address, data, bhe);
+        return;
+    }
+
+    // BHE=0, A0=1 -> 8-битная операция high byte (нечетный адрес)
+    if (unlikely(!bhe && a0)) {
+        port_write8(address, data >> 8, bhe);
+    }
+
+    // BHE=1, A0=1 -> невалидная комбинация (игнорируем)
 }
