@@ -96,7 +96,8 @@ __force_inline void i8259_write(uint16_t port_number, uint8_t register_value) {
 }
 
 
-#define i8259_interrupt(irq) (i8259.interrupt_request_register |= (1 << (irq)) & (~i8259.interrupt_mask_register))
+#define i8259_interrupt(irq) i8259.interrupt_request_register |= (1 << (irq)) & (~i8259.interrupt_mask_register);  \
+    gpio_put(INTR_PIN, 1);
 
 __force_inline uint8_t i8259_nextirq() {
     uint8_t irq = i8259.interrupt_request_register & ~i8259.interrupt_mask_register; //XOR request register with inverted mask register

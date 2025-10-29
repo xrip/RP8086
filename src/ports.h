@@ -1,4 +1,6 @@
 #pragma once
+#include <stdio.h>
+
 #include "common.h"
 #include "hardware/i8259.h"
 // ============================================================================
@@ -14,7 +16,7 @@ static uint8_t port3DA = 0; // VGA status port state
 
 __force_inline static uint8_t port_read8(const uint32_t address) {
     switch (address) {
-        case likely(0x3BA): { // MDA status port
+        case 0x3BA: { // MDA status port
             return port3DA ^= 9;
         }
         case 0x20 ... 0x21: {
