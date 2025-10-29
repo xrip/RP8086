@@ -38,26 +38,26 @@ pending &= block_mask;
 return pending;
 }
 */
-__force_inline static void i8259_write(const uint16_t port_number, const uint8_t register_value) {
+__force_inline static void i8259_write(const uint16_t port_number, const uint8_t data) {
     switch (port_number) {
         case 0x20:
-            if (register_value & 0x10) {
+            if (data & 0x10) {
                 //ICW1
                 i8259.interrupt_mask_register = 0x00;
-                i8259.initialization_command_words_1 = register_value;
+                i8259.initialization_command_words_1 = data;
                 i8259.initialization_command_word_step = 2;
                 i8259.register_read_mode = 0;
-            } else if ((register_value & 0x08) == 0) {
+            } else if ((data & 0x08) == 0) {
                 //OCW2
                 //                i8259.ocw[2] = register_value;
-                switch (register_value & 0xE0) {
+                switch (data & 0xE0) {
                     case 0x20: //non-specific EOI
                         i8259.interrupt_request_register &= ~i8259.in_service_register;
                         i8259.in_service_register = 0x00;
                         break;
                     case 0x60: //specific EOI
-                        i8259.interrupt_request_register &= ~(1 << (register_value & 0x03));
-                        i8259.in_service_register &= ~(1 << (register_value & 0x03));
+                        i8259.interrupt_request_register &= ~(1 << (data & 0x03));
+                        i8259.in_service_register &= ~(1 << (data & 0x03));
                         break;
                     default: //other
 
@@ -66,8 +66,8 @@ __force_inline static void i8259_write(const uint16_t port_number, const uint8_t
             } else {
                 //OCW3
                 //                i8259.ocw[3] = register_value;
-                if (register_value & 0x02) {
-                    i8259.register_read_mode = register_value & 1;
+                if (data & 0x02) {
+                    i8259.register_read_mode = data & 1;
                 }
             }
             break;
@@ -75,7 +75,7 @@ __force_inline static void i8259_write(const uint16_t port_number, const uint8_t
             switch (i8259.initialization_command_word_step) {
                 case 2: //ICW2
                     // i8259.initialization_command_words[2] = register_value;
-                    i8259.interrupt_vector_offset = register_value & 0xF8;
+                    i8259.interrupt_vector_offset = data & 0xF8;
                     if (i8259.initialization_command_words_1 & 0x02) {
                         i8259.initialization_command_word_step = 4;
                     } else {
@@ -95,7 +95,7 @@ __force_inline static void i8259_write(const uint16_t port_number, const uint8_t
                     i8259.initialization_command_word_step = 5; //done with ICWs
                     break;
                 case 5: //just set IMR value now
-                    i8259.interrupt_mask_register = register_value;
+                    i8259.interrupt_mask_register = data;
                     break;
             }
             break;
