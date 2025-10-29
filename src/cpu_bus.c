@@ -14,8 +14,8 @@ static uint16_t irq_pending_vector = 0;
 // Bus Read/Write Routing (маршрутизация между memory и ports)
 // ============================================================================
 
-__force_inline static uint16_t i8086_read(const uint32_t address, const bool is_memory_access) {
-    return is_memory_access ? memory_read(address) : port_read(address);
+__force_inline static uint16_t i8086_read(const uint32_t address, const bool is_memory_access, const bool bhe) {
+    return is_memory_access ? memory_read(address  & 0xFFFFE) : port_read(address & 0xFFF, bhe);
 }
 
 __force_inline static void i8086_write(const uint32_t address, const uint16_t data,
@@ -54,7 +54,7 @@ void __time_critical_func(bus_read_handler)() {
             irq_pending_vector = 0;
         } else {
             // Обычное чтение памяти/портов.
-            BUS_CTRL_PIO->txf[BUS_CTRL_SM] = i8086_read(bus_state & 0xFFFFE, bus_state & MIO) << 16 | 0xFFFF;
+            BUS_CTRL_PIO->txf[BUS_CTRL_SM] = i8086_read(bus_state, bus_state & MIO, bus_state & BHE) << 16 | 0xFFFF;
         }
 
         // TODO если мы не можем обработать адрес, вместо того чтобы _НЕ_ перключать пины на выход - можно выполнить следующий код, чтобы отпустить шину
@@ -65,7 +65,7 @@ void __time_critical_func(bus_read_handler)() {
 
         pio_interrupt_clear(BUS_CTRL_PIO, 1);
     } else if (pio_interrupt_get(BUS_CTRL_PIO, 3)) {
-        // INTA cycle
+        // INTA cycle (первый INTA pulse от CPU)
         pio_interrupt_clear(BUS_CTRL_PIO, 3);
 
         irq_pending_vector = current_irq_vector;

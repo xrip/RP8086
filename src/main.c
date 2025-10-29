@@ -6,6 +6,7 @@
 #include "hardware/watchdog.h"
 #include "pico/bootrom.h"
 #include "pico/multicore.h"
+#include "hardware/i8259.h"
 
 // ============================================================================
 // Global Memory Arrays
@@ -13,6 +14,10 @@
 uint8_t RAM[RAM_SIZE] __attribute__((aligned(4)));
 uint8_t VIDEORAM[4096] __attribute__((aligned(4)));
 uint8_t PORTS[0xFFF] __attribute__((aligned(4))) = {[0 ... 0xFFE] = 0xFF};
+
+i8259_s i8259 = {
+    .interrupt_vector_offset = 8,
+};
 
 // ============================================================================
 // IRQ System - Simple Version
@@ -94,7 +99,7 @@ static uint8_t ascii_to_scancode(const int ascii) {
 }
 
 // ============================================================================
-// Set scancode and trigger IRQ1
+// Set scancode and trigger IRQ1 (keyboard interrupt)
 // ============================================================================
 static void push_scancode(const uint8_t scancode) {
     if (scancode == 0x00) return; // Ignore unknown keys
@@ -128,7 +133,7 @@ void pic_init(void) {
 
     while (true) {
         // ═══════════════════════════════════════════════════════
-        // 1. Генерация таймерного прерывания IRQ0
+        // 1. Генерация таймерного прерывания IRQ0 (18.2 Hz)
         // ═══════════════════════════════════════════════════════
         if (absolute_time_diff_us(next_irq0, get_absolute_time()) >= 0) {
             current_irq_vector = (0xFF00 | 8) + 0; // IRQ 0
@@ -136,7 +141,7 @@ void pic_init(void) {
         }
 
         // ═══════════════════════════════════════════════════════
-        // 2. Управление сигналом INTR (приоритет: IRQ0 > IRQ1)
+        // 2. Управление сигналом INTR (проверка pending IRQ в IRR)
         // ═══════════════════════════════════════════════════════
         gpio_put(INTR_PIN, current_irq_vector ? 1 : 0);
 

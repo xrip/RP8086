@@ -1,6 +1,6 @@
 #pragma once
 #include "common.h"
-
+#include "hardware/i8259.h"
 // ============================================================================
 // External Port Arrays and Variables
 // ============================================================================
@@ -12,14 +12,13 @@ extern volatile uint8_t current_scancode; // Keyboard scancode (defined in main.
 // ============================================================================
 static uint8_t port3DA = 0; // VGA status port state
 
-// ============================================================================
-// Port Read (16-bit)
-// ============================================================================
-__force_inline static uint16_t port_read(const uint32_t address) {
-    // I/O access
-    switch (address & 0xFFE) {
-        case 0x3BA: { // MDA status port
+__force_inline static uint8_t port_read8(const uint32_t address) {
+    switch (address) {
+        case likely(0x3BA): { // MDA status port
             return port3DA ^= 9;
+        }
+        case 0x20 ... 0x21: {
+            return i8259_read(address);
         }
         case 0x60: { // Keyboard Data Port - читаем скан-код и сбрасываем
             const uint8_t scancode = current_scancode;
@@ -30,14 +29,31 @@ __force_inline static uint16_t port_read(const uint32_t address) {
             return current_scancode != 0;  // Упрощено: компилятор генерирует оптимальный код
         }
         default:
-            return 0xFFFF;
+            return 0xFF;
     }
 }
+// ============================================================================
+// Port Read (16-bit)
+// ============================================================================
+__force_inline static uint16_t port_read(const uint32_t address, const bool bhe) {
+    // I/O access
+    // TODO: Обработка A0 и BHE для ускорения
+    return port_read8(address) | port_read8(address + 1) << 8;
+}
 
+__force_inline static void port_write8(const uint32_t address, const uint8_t data, const bool bhe) {
+    switch (address) {
+        case 0x20 ... 0x21: {
+            return i8259_write(address, data);
+        }
+    }
+}
 // ============================================================================
 // Port Write (16-bit with BHE support)
 // ============================================================================
 __force_inline static void port_write(const uint32_t address, const uint16_t data, const bool bhe) {
     // I/O write - store to ports array
-    write_to(PORTS, address & 0x3FF, data, bhe);
+    // TODO Обработка A0 и BHE дял ускорения
+    port_write8(address, data, bhe);
+    port_write8(address + 1, data >> 8, bhe);
 }
