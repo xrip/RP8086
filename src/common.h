@@ -83,3 +83,13 @@ typedef struct {
     uint8_t interrupt_vector_offset; //interrupt vector offset
     uint8_t register_read_mode; //remember what to return on read register from OCW3
 } i8259_s;
+
+typedef struct {
+    uint16_t channel_reload_value[3]; // chandata -> channel reload values (what gets loaded into counters)
+    uint8_t channel_access_mode[3]; // accessmode -> how each channel is accessed (lobyte/hibyte/toggle)
+    uint8_t channel_byte_toggle[3]; // bytetoggle -> tracks which byte to read/write in toggle mode
+    uint32_t channel_effective_count[3]; // effectivedata -> actual count value used by channel
+    float channel_frequency[3]; // chanfreq -> calculated frequency for each channel
+    uint8_t channel_active[3]; // active -> whether channel is actively counting
+    uint16_t channel_current_count[3]; // counter -> current counter value for each channel
+} i8253_s;

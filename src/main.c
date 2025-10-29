@@ -7,6 +7,7 @@
 #include "pico/bootrom.h"
 #include "pico/multicore.h"
 #include "hardware/i8259.h"
+#include "hardware/i8253.h"
 
 // ============================================================================
 // Global Memory Arrays
@@ -19,6 +20,9 @@ i8259_s i8259 __attribute__((aligned(4))) = {
     .interrupt_mask_register = 0xFF, // Все IRQ замаскированы по умолчанию
     .interrupt_vector_offset = 0x08, // Стандартный offset для IBM PC
 };
+uint32_t timer_interval = 54925;
+bool speakerenabled = false;
+i8253_s i8253 __attribute__((aligned(4))) = { 0 };
 
 // ============================================================================
 // IRQ System - Intel 8259A Compatible Controller
@@ -119,8 +123,6 @@ void pic_init(void) {
 // Core1: Обработка i8086_bus
 // ============================================================================
 [[noreturn]] void bus_handler_core(void) {
-    constexpr uint32_t timer_interval = 54925; // 549ms на 500Khz, 54.925ms на 5Mhz
-
     start_cpu_clock(); // Start i8086 clock generator
     pic_init(); // Initialize interrupt controller and start Core1 IRQ generator
     cpu_bus_init(); // Initialize bus BEFORE releasing i8086 from reset
