@@ -134,7 +134,7 @@ void pic_init(void) {
         // 1. Генерация таймерного прерывания IRQ0 (18.2 Hz)
         // ═══════════════════════════════════════════════════════
         if (absolute_time_diff_us(next_irq0, get_absolute_time()) >= 0) {
-            current_irq_vector = (0xFF00 | 8) + 0; // IRQ 0
+            i8259_interrupt(0);
             next_irq0 = delayed_by_us(next_irq0, timer_interval);
         }
 
