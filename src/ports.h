@@ -2,6 +2,7 @@
 #include <stdio.h>
 
 #include "common.h"
+#include "hardware/i8237.h"
 #include "hardware/i8253.h"
 #include "hardware/i8259.h"
 // ============================================================================
@@ -16,6 +17,9 @@ static uint8_t port3DA = 0; // VGA status port state
 
 __force_inline static uint8_t port_read8(const uint32_t address) {
     switch (address) {
+        case 0 ... 0x0F: {
+            return i8237_readport(address);
+        }
         case 0x3BA: {
             // MDA status port
             return port3DA ^= 9;
@@ -36,6 +40,13 @@ __force_inline static uint8_t port_read8(const uint32_t address) {
             // Keyboard Status Port - bit 0 = данные доступны
             return current_scancode != 0; // Упрощено: компилятор генерирует оптимальный код
         }
+        case 0x81:
+        case 0x82:
+        case 0x83:
+        case 0x87: {
+            return i8237_readpage(address);
+        }
+
         default:
             return 0xFF;
     }
@@ -69,11 +80,20 @@ __force_inline static uint16_t port_read(const uint32_t address, const bool bhe)
 
 __force_inline static void port_write8(const uint32_t address, const uint8_t data, const bool bhe) {
     switch (address) {
+        case 0 ... 0x0F: {
+            return i8237_writeport(address, data);
+        }
         case 0x20 ... 0x21: {
             return i8259_write(address, data);
         }
         case 0x40 ... 0x43: {
             return i8253_write(address, data);
+        }
+        case 0x81:
+        case 0x82:
+        case 0x83:
+        case 0x87: {
+            return i8237_writepage(address, data);
         }
     }
 }

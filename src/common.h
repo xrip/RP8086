@@ -1,5 +1,6 @@
 #pragma once
 #include <stdint.h>
+#include <string.h>
 #include <stdbool.h>
 #include <hardware/vreg.h>
 #include <hardware/clocks.h>
@@ -93,3 +94,19 @@ typedef struct {
     uint8_t channel_active[3]; // active -> whether channel is actively counting
     uint16_t channel_current_count[3]; // counter -> current counter value for each channel
 } i8253_s;
+
+typedef struct {
+    uint32_t page;
+    uint32_t address;
+    uint32_t reload_address;
+    uint32_t address_increase;
+    uint16_t count;
+    uint16_t reload_count;
+    uint8_t auto_init;
+    uint8_t mode;
+    uint8_t enable;
+    uint8_t masked;
+    uint8_t dreq;
+    uint8_t finished;
+    uint8_t transfer_type;
+} dma_channel_s;

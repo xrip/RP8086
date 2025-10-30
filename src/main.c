@@ -8,6 +8,7 @@
 #include "pico/multicore.h"
 #include "hardware/i8259.h"
 #include "hardware/i8253.h"
+#include "hardware/i8237.h"
 
 // ============================================================================
 // Global Memory Arrays
@@ -19,9 +20,17 @@ i8259_s i8259 __attribute__((aligned(4))) = {
     .interrupt_mask_register = 0xFF, // Все IRQ замаскированы по умолчанию
     .interrupt_vector_offset = 0x08, // Стандартный offset для IBM PC
 };
+i8253_s i8253 __attribute__((aligned(4))) = { 0 };
+
+dma_channel_s dma_channels[DMA_CHANNELS] = {
+    {.masked = 1},
+    {.masked = 1},
+    {.masked = 1},
+    {.masked = 1},
+};
+
 uint32_t timer_interval = 54925;
 bool speakerenabled = false;
-i8253_s i8253 __attribute__((aligned(4))) = { 0 };
 
 // ============================================================================
 // IRQ System - Intel 8259A Compatible Controller
