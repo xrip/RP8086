@@ -511,29 +511,49 @@ if (vector) {
 
 ## Hardware Reference Documentation
 
-### Intel Component Specifications (JSON)
+### Documentation Structure
 
-**Машиночитаемые технические характеристики основных компонентов:**
-- **Intel 8086**: [`docs/intel_8086_specs.json`](docs/intel_8086_specs.json) - Полная спецификация процессора, пины, регистры, временные диаграммы
-- **Intel 8259A**: [`docs/intel_8259a_specs.json`](docs/intel_8259a_specs.json) - Контроллер прерываний, регистры ICW/OCW, каскадное подключение
-- **Intel 8253**: [`docs/intel_8253_specs.json`](docs/intel_8253_specs.json) - Программируемый таймер, 6 режимов работы, порты I/O
-- **Intel 8237A**: [`docs/intel_8237a_specs.json`](docs/intel_8237a_specs.json) - DMA контроллер, 4 канала, приоритеты, режимы передачи
-- **Intel 8272A**: [`docs/intel_8272a_specs.json`](docs/intel_8272a_specs.json) - Контроллер дискет, команды чтения/записи, форматы дисков
+**PDF Datasheets** (`docs/datasheets/`):
+- Original manufacturer datasheets for hardware reference
+- **Intel 8086**: [`docs/datasheets/intel-8086_datasheet.pdf`](docs/datasheets/intel-8086_datasheet.pdf)
+- **Intel 8259A**: [`docs/datasheets/8259A.pdf`](docs/datasheets/8259A.pdf)
+- **Intel 8253**: [`docs/datasheets/8253.pdf`](docs/datasheets/8253.pdf)
+- **Intel 8237A**: [`docs/datasheets/8237A.pdf`](docs/datasheets/8237A.pdf)
+- **Intel 8272A**: [`docs/datasheets/Intel 8272A Floppy Controller.pdf`](docs/datasheets/Intel%208272A%20Floppy%20Controller.pdf)
 
-**Использование:**
-```bash
-# Для быстрого доступа к спецификациям:
-cat docs/intel_8086_specs.json | jq '.intel_8086_specifications.pin_configuration'
-cat docs/intel_8259a_specs.json | jq '.intel_8259a_specifications.register_map'
-cat docs/intel_8253_specs.json | jq '.intel_8253_specifications.operating_modes'
-cat docs/intel_8237a_specs.json | jq '.intel_8237a_specifications.transfer_modes'
-cat docs/intel_8272a_specs.json | jq '.intel_8272a_specifications.commands'
-```
+### Machine-Readable Specifications (TOON Format)
+
+**Token-Oriented Object Notation (TOON)** - компактный машиночитаемый формат для технических спецификаций:
+- Более эффективное использование токенов по сравнению с JSON (нет лишних кавычек и скобок)
+- Иерархическая структура через отступы (как YAML)
+- Специальная нотация для массивов: `pins[8]: 4,5,6,7,8,9,10,11`
+- Легко читается как людьми, так и AI моделями
+
+**Машиночитаемые спецификации** (`docs/specs/`):
+- **Intel 8086**: [`docs/specs/intel_8086_specs.toon`](docs/specs/intel_8086_specs.toon) - Полная спецификация процессора, пины, регистры, временные диаграммы
+- **Intel 8259A**: [`docs/specs/intel_8259a_specs.toon`](docs/specs/intel_8259a_specs.toon) - Контроллер прерываний, регистры ICW/OCW, каскадное подключение
+- **Intel 8253**: [`docs/specs/intel_8253_specs.toon`](docs/specs/intel_8253_specs.toon) - Программируемый таймер, 6 режимов работы, порты I/O
+- **Intel 8237A**: [`docs/specs/intel_8237a_specs.toon`](docs/specs/intel_8237a_specs.toon) - DMA контроллер, 4 канала, приоритеты, режимы передачи
+- **Intel 8272A**: [`docs/specs/intel_8272a_specs.toon`](docs/specs/intel_8272a_specs.toon) - Контроллер дискет, команды чтения/записи, форматы дисков
 
 **Architecture Reference:**
-- **System Architecture**: [`docs/i8086_architecture_reference.json`](docs/i8086_architecture_reference.json) - Полное руководство по архитектуре взаимодействия компонентов
+- **System Architecture**: [`docs/specs/i8086_architecture_reference.toon`](docs/specs/i8086_architecture_reference.toon) - Полное руководство по архитектуре взаимодействия компонентов
 
-**Key References:**
+**TOON Format Example:**
+```toon
+intel_8259a_specifications:
+  general_info:
+    part_number: 8259A
+    manufacturer: Intel
+    device_type: Programmable Interrupt Controller
+  pin_configuration:
+    data_bus:
+      "D0-D7":
+        pins[8]: 4,5,6,7,8,9,10,11
+        type: bidirectional
+```
+
+**Key Technical References:**
 - IBM PC compatible interrupt vectors (IRQ0 = 0x08, IRQ1 = 0x09)
 - 8253 system timer configuration (18.2 Hz, port 0x40-0x43)
 - 8259A initialization sequence (ICW1 → ICW2 → ICW3 → ICW4)
