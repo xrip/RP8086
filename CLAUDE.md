@@ -177,6 +177,7 @@ Critical bus signals are hardcoded in `i8086_bus.pio`:
 - `bus_read_handler()`: Services read requests (IRQ1) and INTA cycles (IRQ3)
   - Returns 32-bit value: `(data << 16) | 0xFFFF` (all addresses currently handled by RP2040)
   - Protocol ready for ISA expansion: can return `0x00000000` for external device addresses
+  - INTA cycle: вызывает `i8259_nextirq()` для получения вектора прерывания
 - `bus_write_handler()`: Services write requests (IRQ0)
 - `i8086_read()`: Highly optimized 16-bit memory/IO reads with `__force_inline`
 - `i8086_write()`: Highly optimized 16-bit memory/IO writes with `__force_inline`
@@ -184,14 +185,49 @@ Critical bus signals are hardcoded in `i8086_bus.pio`:
   - 192KB RAM (4-byte aligned, 0x00000-0x2FFFF)
   - 8KB ROM - Turbo XT BIOS v3.1 (4-byte aligned, 0xFE000-0xFFFFF)
   - 4KB Video RAM - MDA text mode (4-byte aligned, 0xB0000-0xB7FFF)
-  - I/O ports array (2-byte aligned, 0x000-0xFFF)
 - **Performance optimization**:
   - Direct 16-bit aligned access: `*(uint16_t *)&RAM[address]`
-  - Range check optimization: `(port & 0xFF0) == 0x60` for keyboard ports
   - Local copies of volatile variables to minimize memory access
-- **Port emulation**:
-  - VGA status register (0x3BA) with vsync bit toggling
-  - Keyboard data/status ports (0x60, 0x64)
+
+**common.h** - Common definitions and structures:
+- `i8259_s`: структура для Intel 8259A PIC (IMR, IRR, ISR, ICW steps, vector offset)
+- `i8253_s`: структура для Intel 8253 PIT (3 channels, reload values, access modes, frequencies)
+- `write_to()`: inline функция для записи с поддержкой BHE
+
+**memory.h** - Memory emulation:
+- `memory_read()`: Чтение из RAM/ROM/VIDEORAM с выравниванием адресов
+- `memory_write()`: Запись в RAM/VIDEORAM с поддержкой BHE
+
+**ports.h** - I/O ports routing and device emulation:
+- `port_read8()` / `port_write8()`: 8-битные операции для отдельных устройств
+- `port_read()` / `port_write()`: 16-битные операции с поддержкой BHE и A0
+- **Прямая маршрутизация портов** (switch/case):
+  - 0x20-0x21 → i8259_read() / i8259_write()
+  - 0x40-0x43 → i8253_read() / i8253_write()
+  - 0x60, 0x64 → Keyboard emulation
+  - 0x3BA → VGA status register
+
+**hardware/i8259.h** - Intel 8259A PIC (Programmable Interrupt Controller):
+- `i8259_read()`: Чтение регистров (IMR, IRR/ISR в зависимости от OCW3)
+- `i8259_write()`: Запись ICW1-ICW4, OCW1-OCW3
+- `i8259_interrupt()`: Установка бита в IRR для заданного IRQ
+- `i8259_nextirq()`: Получение вектора с наивысшим приоритетом, перемещение IRR → ISR
+- `i8259_get_pending_irqs()`: Возвращает IRR & ~IMR (немаскированные прерывания)
+- **Полная поддержка**:
+  - ICW1-ICW4 (Initialization Command Words)
+  - OCW1-OCW3 (Operation Command Words)
+  - Non-specific EOI (0x20) и Specific EOI (0x60 + IRQ)
+  - Fully Nested Mode с автоматическими приоритетами
+
+**hardware/i8253.h** - Intel 8253 PIT (Programmable Interval Timer):
+- `i8253_read()`: Чтение счетчиков каналов с поддержкой LOBYTE/HIBYTE/TOGGLE режимов
+- `i8253_write()`: Запись reload values и control word
+- **3 независимых канала**:
+  - Channel 0: System timer (динамический timer_interval)
+  - Channel 1-2: Доступны для других целей (память, speaker)
+- **Режимы доступа**: LOBYTE, HIBYTE, TOGGLE, LATCHCOUNT
+- **Динамическая частота**: Расчет frequency = 1193182 / reload_value
+- **Speaker support**: флаг speakerenabled для будущей эмуляции
 
 **i8086_bus.pio** - Highly optimized PIO state machine implementing i8086 bus protocol:
 - Captures 20-bit address + control signals (25 GPIO)
@@ -215,15 +251,18 @@ Critical bus signals are hardcoded in `i8086_bus.pio`:
 - `pic_init()`: Инициализирует INTR пин как output, устанавливает LOW
 - `bus_handler_core()`: Работает на Core1, выполняет:
   - Инициализацию железа (clock → pic → bus → reset)
-  - Генерацию IRQ0 каждые 54.925ms (18.2 Hz, IBM PC 8253/8254 совместимость)
-  - Управление сигналом INTR на основе `current_irq_vector`
-- **Система управления прерываниями**:
-  - `current_irq_vector`: глобальная переменная (0xFF08 для IRQ0, 0xFF09 для IRQ1)
-  - Приоритет: IRQ0 (timer) устанавливается Core1, IRQ1 (keyboard) устанавливается Core0
-  - INTA обработка через PIO IRQ 3 → возврат вектора → сброс INTR
+  - Генерацию IRQ0 каждые ~54.925ms (18.2 Hz, IBM PC 8253/8254 совместимость)
+  - Управление сигналом INTR на основе `i8259_get_pending_irqs()`
+- **Система управления прерываниями (Intel 8259A)**:
+  - `i8259`: глобальная структура с регистрами IMR, IRR, ISR
+  - `i8259_interrupt(irq)`: Устанавливает бит в IRR (Interrupt Request Register)
+  - `i8259_nextirq()`: Находит IRQ с наивысшим приоритетом, перемещает из IRR в ISR
+  - `i8259_get_pending_irqs()`: Возвращает IRR & ~IMR (немаскированные прерывания)
+  - Приоритет: IRQ0 > IRQ1 > ... > IRQ7 (Fully Nested Mode)
+  - INTA обработка через PIO IRQ 3 → `i8259_nextirq()` → возврат вектора
 - **Keyboard IRQ**:
-  - `push_scancode()` устанавливает `current_irq_vector = 0xFF09` при наличии данных
-  - Проверяет что вектор не занят: `if (!current_irq_vector)`
+  - `push_scancode()` вызывает `i8259_interrupt(1)` при наличии данных
+  - Приоритет управляется автоматически через i8259 (проверка IMR)
   - Чтение порта 0x60 сбрасывает `current_scancode` автоматически
 
 **bios.h** - Turbo XT BIOS v3.1 (10/28/2017) ROM image:
@@ -263,10 +302,15 @@ Critical bus signals are hardcoded in `i8086_bus.pio`:
 - ✅ **Compiler optimizations**: -Ofast, copy_to_ram, likely/unlikely hints
 - 🚀 **Performance**: 4 MHz stable operation with keyboard & video
 
+**Recently implemented:**
+- ✅ **Intel 8259A PIC**: Полная эмуляция контроллера прерываний (ICW1-ICW4, OCW1-OCW3, IMR/IRR/ISR)
+- ✅ **Intel 8253 PIT**: Программируемый таймер с 3 каналами (порты 0x40-0x43)
+- ✅ **Прямая эмуляция портов**: Удален массив PORTS[], каждое устройство эмулируется напрямую
+
 **Not yet implemented (Фаза 2):**
-- ⚠️ Full 8259A register interface (ICW1-ICW4, OCW1-OCW3)
-- ⚠️ Additional I/O devices (UART, PIT hardware emulation)
-- ⚠️ DMA controller
+- ⚠️ Additional I/O devices (UART, speaker hardware emulation)
+- ⚠️ External interrupts (IRQ2-IRQ7 via 8259A)
+- ⚠️ DMA controller (Intel 8237A)
 - ⚠️ Full speed operation (5 MHz+)
 - ⚠️ Additional video modes (CGA/EGA compatibility)
 
@@ -288,25 +332,34 @@ Add cases to `i8086_read()` and `i8086_write()` in `cpu_bus.c`. These functions 
 - bhe flag для 8/16 битных операций
 
 **Текущие порты:**
-- Порт 0x3BA: VGA status register (эмуляция vsync битов, приоритет проверки)
+- Порты 0x20-0x21: Intel 8259A PIC (Programmable Interrupt Controller)
+  - Полная эмуляция ICW1-ICW4 (Initialization Command Words)
+  - Полная эмуляция OCW1-OCW3 (Operation Command Words)
+  - Регистры: IMR, IRR, ISR, interrupt_vector_offset
+- Порты 0x40-0x43: Intel 8253 PIT (Programmable Interval Timer)
+  - 3 независимых канала с reload values
+  - Режимы доступа: LOBYTE, HIBYTE, TOGGLE
+  - Динамическая настройка timer_interval
 - Порт 0x60: Keyboard Data Port (читает `current_scancode`, сбрасывает в 0)
 - Порт 0x64: Keyboard Status Port (bit 0 = `current_scancode != 0`)
-- Порты 0x000-0xFFF: Общие порты (возвращают 0xFFFF для неопределенных портов)
+- Порт 0x3BA: VGA status register (эмуляция vsync битов, приоритет проверки)
 
-**Оптимизация проверки портов:**
-- VGA порт (0x3BA) проверяется первым (самый частый)
-- Клавиатурные порты (0x60-0x6F) проверяются диапазонной маской: `(port & 0xFF0) == 0x60`
-- Упрощена логика клавиатуры: нет буфера, один байт `current_scancode`
-- Экономия 2-3 такта на каждой I/O операции
+**Архитектура портов (НОВОЕ):**
+- **Прямая эмуляция**: Массив `PORTS[]` удален, каждое устройство эмулируется через отдельные функции
+- **Разделение функций**: `port_read8()`/`port_write8()` для 8-битных операций
+- **16-битная обработка**: `port_read()`/`port_write()` корректно обрабатывают BHE и A0
+- **Оптимизация**: Приоритетная проверка часто используемых портов (VGA → 8259A → 8253 → Keyboard)
+- **Экономия памяти**: Удален массив 4KB, используются только структуры устройств
 
 ### USB Commands (main.c)
 
 **Специальные команды (uppercase, не отправляются в i8086):**
 - **'M'**: Дамп памяти (первые 1024 байт RAM)
 - **'V'**: Дамп видеопамяти (первые 5 строк × 80 символов)
-- **'P'**: Дамп портов ввода-вывода (первые 1024 байт)
 - **'R'**: Сброс CPU (сбрасывает INTR и выполняет reset_cpu())
 - **'B'**: Перезагрузка RP2040 в bootloader mode (для прошивки новой версии)
+
+**Примечание**: Команда 'P' (дамп портов) удалена - массив PORTS[] больше не существует
 
 **Обычный ввод (любые другие символы):**
 - Все символы, кроме uppercase команд, автоматически конвертируются в скан-коды
@@ -413,40 +466,48 @@ Wrong order = i8086 starts before PIO is ready = bus conflicts!
 - Reset vector at 0xFFFF0 → points into ROM
 - RAM увеличена с 128KB до 192KB (удалена система логирования)
 - Video RAM адресуется через отдельный массив `VIDEORAM[4096]`
-- I/O порты эмулируются через массив `PORTS[0xFFF]` (2-byte aligned)
+- I/O порты эмулируются напрямую через структуры устройств (i8259_s, i8253_s) - массив PORTS удален
 
-### IRQ Priority System
+### IRQ Priority System (Intel 8259A Compatible)
 
-**Simplified IRQ Management:**
-- Single global variable: `current_irq_vector` (uint16_t)
-- Values: 0 (no IRQ), 0xFF08 (IRQ0 timer), 0xFF09 (IRQ1 keyboard)
-- Priority: IRQ0 > IRQ1 (enforced by conditional check in `push_scancode()`)
+**Intel 8259A PIC Architecture:**
+- **Регистры**: IMR (Interrupt Mask Register), IRR (Interrupt Request Register), ISR (In-Service Register)
+- **Автоматические приоритеты**: IRQ0 > IRQ1 > IRQ2 > ... > IRQ7 (Fully Nested Mode)
+- **Программируемый вектор**: `interrupt_vector_offset` (по умолчанию 0x08 для IBM PC)
 
 **IRQ0 (Timer) - Core1:**
 ```c
 if (absolute_time_diff_us(next_irq0, get_absolute_time()) >= 0) {
-    current_irq_vector = 0xFF08;  // Unconditionally set (highest priority)
-    next_irq0 = delayed_by_us(next_irq0, 54925);
+    i8259_interrupt(0);  // Устанавливает бит IRR[0]
+    next_irq0 = delayed_by_us(next_irq0, timer_interval);  // Динамический интервал
 }
 ```
 
 **IRQ1 (Keyboard) - Core0:**
 ```c
 void push_scancode(uint8_t scancode) {
-    // ... buffer management ...
-    if (!current_irq_vector) {  // Only set if no IRQ pending
-        current_irq_vector = 0xFF09;
-    }
+    current_scancode = scancode;
+    i8259_interrupt(1);  // Устанавливает бит IRR[1]
 }
 ```
 
 **INTR Management - Core1:**
 ```c
-if (current_irq_vector) {
-    gpio_put(INTR_PIN, 1);  // Raise INTR to i8086
-}
-// Cleared by bus_read_handler() on INTA cycle
+gpio_put(INTR_PIN, i8259_get_pending_irqs());  // Проверяет IRR & ~IMR
 ```
+
+**INTA Protocol - cpu_bus.c:**
+```c
+// В bus_read_handler() при получении IRQ 3 (INTA cycle):
+const uint8_t vector = i8259_nextirq();  // Получить вектор, переместить IRR → ISR
+if (vector) {
+    irq_pending_vector = 0xFF00 | vector;  // Формат: 0xFF00 | вектор
+}
+```
+
+**EOI (End of Interrupt):**
+- BIOS отправляет команду 0x20 на порт 0x20 для завершения обработки IRQ
+- i8259 очищает соответствующий бит в ISR, разрешая новые прерывания
 
 ## Hardware Reference Documentation
 
