@@ -5,6 +5,7 @@
 #include "hardware/i8237.h"
 #include "hardware/i8253.h"
 #include "hardware/i8259.h"
+#include "hardware/i8272.h"
 // ============================================================================
 // External Port Arrays and Variables
 // ============================================================================
@@ -19,6 +20,9 @@ __force_inline static uint8_t port_read8(const uint32_t address) {
     switch (address) {
         case 0 ... 0x0F: {
             return i8237_readport(address);
+        }
+        case 0x3F0 ... 0x3F7: {
+            return i8272_readport(address);
         }
         case 0x3BA: {
             // MDA status port
@@ -82,6 +86,9 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
     switch (address) {
         case 0 ... 0x0F: {
             return i8237_writeport(address, data);
+        }
+        case 0x3F0 ... 0x3F7: {
+            return i8272_writeport(address, data);
         }
         case 0x20 ... 0x21: {
             return i8259_write(address, data);

@@ -25,9 +25,9 @@ __force_inline static uint16_t memory_read(const uint32_t address) {
     }
 
     // BASIC ROM: 0xF6000-0xFDFFF
-    if ((address - 0xF6000) < (BIOS_ROM_BASE - 0xF6000)) {
-        return *(uint16_t *)&BASIC[address - 0xF6000];
-    }
+    // if ((address - 0xF6000) < (BIOS_ROM_BASE - 0xF6000)) {
+        // return *(uint16_t *)&BASIC[address - 0xF6000];
+    // }
 
     // BIOS ROM: 0xFE000-0xFFFFF (8KB)
     if (address >= BIOS_ROM_BASE) {

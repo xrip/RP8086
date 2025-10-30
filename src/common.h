@@ -23,7 +23,7 @@
 // ============================================================================
 // i8086 Clock Configuration
 // ============================================================================
-#define I8086_CLOCK_SPEED    (4 * MHZ)  // i8086 clock frequency
+#define I8086_CLOCK_SPEED    (2500 * KHZ)  // i8086 clock frequency
 #define CONFIG_I8086_DUTY_CYCLE 33      // 33% duty cycle (required for i8086)
 
 // ============================================================================
@@ -110,3 +110,27 @@ typedef struct {
     uint8_t finished;
     uint8_t transfer_type;
 } dma_channel_s;
+
+typedef struct {
+    uint8_t command_buffer[16];  // Буфер команды
+    uint8_t command_index;       // Индекс записи в command_buffer
+    uint8_t result_buffer[7];    // Буфер результата
+    uint8_t result_index;        // Индекс чтения из result_buffer
+    uint8_t result_count;        // Количество байт результата
+    uint8_t current_cylinder;    // Текущий цилиндр (для SEEK)
+    uint8_t interrupt_pending;   // IRQ6 ожидает обработки
+
+    // Состояние MSR (Main Status Register)
+    uint8_t msr_rqm : 1;         // Request for Master (1=ready for data transfer)
+    uint8_t msr_dio : 1;         // Data Input/Output (0=CPU->FDC, 1=FDC->CPU)
+    uint8_t msr_ndma : 1;        // Non-DMA mode (0=DMA mode, 1=non-DMA)
+    uint8_t msr_busy : 1;        // FDC is busy
+    uint8_t msr_actd : 1;        // Drive D busy
+    uint8_t msr_actc : 1;        // Drive C busy
+    uint8_t msr_acta : 1;        // Drive A busy
+    uint8_t current_drive;       // Текущий выбранный дисковод (0=A, 1=B)
+
+    // Дополнительное состояние для эмуляции
+    uint8_t reset_pending;       // Флаг ожидания обработки после сброса
+    uint8_t sense_type;          // Тип SENSE команды (INTERRUPT vs STATUS)
+} i8272_s;
