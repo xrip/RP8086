@@ -49,30 +49,31 @@ RP8086 - это программно-аппаратный комплекс, ис
 - Основной цикл:
   - **Рендеринг видео**: 60 FPS вывод VIDEORAM (25×80 MDA) в терминал
   - **Обработка клавиатуры**: USB serial → ASCII → IBM PC/XT Scancode
-  - **Debug команды**: R (reset), B (bootloader), M/V/P (dumps)
+  - **Debug команды**: R (reset), B (bootloader), M/V (dumps)
   - **Инжект скан-кодов**: `push_scancode()` → keyboard buffer → IRQ1
 - Работает непрерывно с `tight_loop_contents()`, без WFI
 
 **Core1 (Bus & IRQ Management):**
 - Инициализация железа: `start_cpu_clock()` → `pic_init()` → `cpu_bus_init()` → `reset_cpu()`
 - Основной цикл:
-  - **Генерация таймера**: IRQ0 каждые 54.925ms (18.2 Hz, IBM PC 8253/8254 стандарт)
-  - **Управление INTR**: Устанавливает INTR=HIGH при `current_irq_vector != 0`
-  - **Приоритеты**: IRQ0 (timer) > IRQ1 (keyboard)
+  - **Генерация таймера**: IRQ0 каждые ~54.925ms (динамический `timer_interval` через Intel 8253 PIT)
+  - **Управление INTR**: Устанавливает INTR=HIGH при наличии немаскированных прерываний через `i8259_get_pending_irqs()`
+  - **Приоритеты**: Автоматическое управление через Intel 8259A (IRQ0 > IRQ1 > ... > IRQ7)
 - IRQ handlers (`bus_read_handler`, `bus_write_handler`) работают на обоих ядрах с `PICO_HIGHEST_IRQ_PRIORITY`
 
-**Протокол INTA (State Machine PIO):**
+**Протокол INTA (State Machine PIO + Intel 8259A):**
 - **INTA обрабатывается в PIO**: В `i8086_bus.pio` реализован `INTA_cycle`
 - **Процесс INTA**:
   1. PIO обнаруживает INTA=LOW после ALE
   2. Генерирует IRQ 3 и устанавливает READY=1 (wait state)
-  3. Ждет завершения цикла INTA (INTA=HIGH → INTA=LOW)
-  4. Передает управление в обычный цикл чтения
-- **Обработка в ARM**: `bus_read_handler()` получает IRQ 3
-  - Устанавливает статический флаг `irq_pending = true`
-  - Сбрасывает INTR=0 через `gpio_put(INTR_PIN, 0)`
-  - При следующем чтении возвращает `current_irq_vector` (0xFF08 для IRQ0, 0xFF09 для IRQ1)
-  - Очищает вектор: `irq_pending = current_irq_vector = 0`
+  3. Ждет завершения первого цикла INTA (INTA=HIGH → INTA=LOW)
+  4. Передает управление в обычный цикл чтения для второго INTA
+- **Обработка в ARM (Intel 8259A Compatible)**: `bus_read_handler()` получает IRQ 3
+  - Вызывает `i8259_nextirq()` для получения вектора прерывания с наивысшим приоритетом
+  - i8259 автоматически перемещает прерывание из IRR в ISR (Interrupt Request → In-Service)
+  - Сохраняет вектор: `irq_pending_vector = 0xFF00 | vector` (например, 0xFF08 для IRQ0)
+  - При следующем чтении возвращает полный вектор прерывания
+  - BIOS отправит команду EOI (End of Interrupt, порт 0x20, значение 0x20) для очистки ISR
 
 ### Назначение GPIO
 
@@ -142,31 +143,57 @@ RP8086 - это программно-аппаратный комплекс, ис
 
 ### Цикл INTA (Interrupt Acknowledge)
 
+i8086 использует двухфазный INTA протокол для получения вектора прерывания:
+
 1. **Обнаружение INTA**: PIO определяет INTA=LOW в цикле `wait_strobe`
 
-2. **INTA_cycle**:
-   - `irq 3 side 1` генерирует прерывание для ARM, устанавливает READY=1 (wait state)
-   - `wait 1 gpio INTA_PIN` ждет завершения INTA (переход в HIGH)
-   - Последовательность ожидания синхронизации с ALE
+2. **INTA_cycle (Первый INTA pulse)**:
+   - `irq 3 side 1` генерирует IRQ 3 для ARM, устанавливает READY=1 (wait state)
+   - `wait 1 gpio INTA_PIN` ждет завершения первого INTA pulse (переход в HIGH)
+   - Синхронизация с ALE для определения начала второго INTA
    - `wait 0 gpio INTA_PIN` подтверждает нахождение во втором цикле INTA
 
-3. **Переход в чтение**: После завершения INTA управление передается в обычный цикл чтения
-   - ARM обработчик устанавливает `irq_pending1 = true`
-   - Следующий цикл чтения возвращает вектор прерывания (0x08)
+3. **Второй INTA pulse (чтение вектора)**: После завершения первого INTA управление передается в обычный цикл чтения
+   - ARM обработчик при получении IRQ 3 вызывает `i8259_nextirq()`:
+     - Находит IRQ с наивысшим приоритетом в IRR & ~IMR (немаскированные прерывания)
+     - Перемещает прерывание из IRR в ISR (устанавливает бит In-Service)
+     - Возвращает полный вектор: `interrupt_vector_offset + irq_number` (например, 0x08 для IRQ0)
+   - Вектор сохраняется в `irq_pending_vector = 0xFF00 | vector`
+   - Следующий цикл чтения возвращает вектор i8086
+   - BIOS обработает прерывание и отправит команду EOI (0x20 на порт 0x20) для очистки ISR
 
-### Парсинг состояния шины (parse_bus_state)
+### Извлечение состояния шины (inline bit extraction)
 
-Функция `parse_bus_state()` в cpu_bus.c извлекает информацию из 26-битного слова PIO:
+В `cpu_bus.c` состояние шины извлекается напрямую из 32-битного слова PIO через битовые маски:
 
 ```c
-info.address = bus_data & 0xFFFFF;       // Bits [19:0] - AD0-AD15 + A16-A19
-info.ale     = (bus_data >> 20) & 1;     // Bit [20] - ALE
-info.rd      = (bus_data >> 21) & 1;     // Bit [21] - RD
-info.wr      = (bus_data >> 22) & 1;     // Bit [22] - WR
-info.inta    = (bus_data >> 23) & 1;     // Bit [23] - INTA
-info.m_io    = (bus_data >> 24) & 1;     // Bit [24] - M/IO
-info.bhe     = (bus_data >> 25) & 1;     // Bit [25] - BHE
+// Структура 32-битного bus_state из PIO FIFO:
+// Bits [31:26] - не используются (padding)
+// Bits [25:0]  - данные шины (26 GPIO)
+
+const uint32_t bus_state = BUS_CTRL_PIO->rxf[BUS_CTRL_SM];
+
+// Прямое извлечение через побитовые операции:
+#define MIO (1 << 24)  // Memory/IO signal
+#define BHE (1 << 25)  // Bus High Enable
+
+// Использование:
+const bool is_memory = bus_state & MIO;  // true = память, false = I/O
+const bool bhe = bus_state & BHE;        // Bus High Enable для 8/16-бит
+
+// Адрес выравнивается при использовании:
+const uint32_t address = bus_state & 0xFFFFE;  // Для памяти (выравнивание по 16-бит)
+const uint32_t port = bus_state & 0xFFF;       // Для I/O портов (12-бит адрес)
 ```
+
+**Битовая структура bus_state** (26 бит данных + 6 бит padding):
+- `[19:0]` - AD0-AD15 (16 бит) + A16-A19 (4 бита) = 20-битный адрес
+- `[20]` - ALE (Address Latch Enable)
+- `[21]` - RD (Read strobe)
+- `[22]` - WR (Write strobe)
+- `[23]` - INTA (Interrupt Acknowledge)
+- `[24]` - M/IO (Memory/IO select)
+- `[25]` - BHE (Bus High Enable)
 
 ### Оптимизация FIFO и обработки прерываний
 
@@ -188,35 +215,49 @@ info.bhe     = (bus_data >> 25) & 1;     // Bit [25] - BHE
   - Готовность к подключению ISA video карт, звуковых карт и других устройств
   - Сохранена обратная совместимость с текущим кодом
 
-**IRQ3 (INTA):**
-- Устанавливает флаг `irq_pending1 = true`
-- При следующем чтении возвращает вектор прерывания 0x08
-- Автоматически сбрасывает INTR=0
+**IRQ3 (INTA) - Intel 8259A Interrupt Acknowledge:**
+- Вызывает `i8259_nextirq()` для получения вектора с наивысшим приоритетом
+- i8259 автоматически перемещает прерывание из IRR в ISR
+- Сохраняет вектор: `irq_pending_vector = 0xFF00 | vector`
+- Следующий цикл чтения возвращает полный вектор (например, 0xFF08 для IRQ0)
+- **Примечание**: INTR остается активным до EOI (End of Interrupt) от BIOS
 
 ## Текущая реализация
 
 ### Эмуляция памяти
 
+Память эмулируется через модуль `src/memory.h` с функциями `memory_read()` и `memory_write()`:
+
 **RAM (192KB):**
-- Диапазон: 0x00000 - 0x2FFFF
-- Массив `RAM[RAM_SIZE]` с 4-byte alignment
-- Поддержка 8/16 битных операций через BHE и A0
+- **Диапазон**: 0x00000 - 0x2FFFF
+- **Массив**: `RAM[RAM_SIZE]` с 4-byte alignment (определен в `src/main.c`)
+- **Поддержка 8/16 бит**: Полная обработка BHE и A0 через `write_to()` в `src/common.h`
 - **Оптимизация**: Прямой 16-битный доступ через `*(uint16_t *)&RAM[address]`
 - **Увеличен со 128KB**: Удалена система логирования, освобождена память
 
 **ROM (8KB Turbo XT BIOS v3.1):**
-- Диапазон: 0xFE000 - 0xFFFFF
-- Массив `BIOS[]` с 4-byte alignment (переименован из GLABIOS_0_4_1_8T_ROM)
-- Только чтение, 16-битный доступ
-- Вектор сброса по адресу 0xFFFF0 указывает в ROM
-- Дата релиза BIOS: 10/28/2017
+- **Диапазон**: 0xFE000 - 0xFFFFF
+- **Массив**: `BIOS[]` с 4-byte alignment (определен в `rom/bios.h`)
+- **Только чтение**: 16-битный доступ, попытки записи игнорируются
+- **Reset vector**: Адрес 0xFFFF0 указывает в ROM (точка входа после сброса)
+- **Версия**: Turbo XT BIOS v3.1 (10/28/2017)
 
 **Видеопамять MDA (4KB):**
-- Диапазон: 0xB0000 - 0xB0FFF
-- Массив `VIDEORAM[4096]` для текстового режима (25×80 символов)
-- Поддержка 8/16 битных операций записи
+- **Диапазон**: 0xB0000 - 0xB0FFF
+- **Массив**: `VIDEORAM[4096]` для текстового режима 25×80 символов (определен в `src/main.c`)
+- **Поддержка 8/16 бит**: Полная обработка записи через BHE и A0
 - **Real-time вывод**: Core0 рендерит в терминал с частотой 60 FPS через ANSI escape codes
-- Ручной дамп через USB команду 'V' (первые 5 строк)
+- **Формат**: Стандартный MDA text mode (символ + атрибут на каждую позицию)
+- **Debug**: Ручной дамп через USB команду 'V' (первые 5 строк)
+
+**Карта памяти (memory map):**
+```
+0x00000 - 0x2FFFF : RAM (192KB) - основная память, 4-byte aligned
+0x30000 - 0xAFFFF : Unmapped (returns 0xFFFF при чтении)
+0xB0000 - 0xB0FFF : Video RAM MDA (4KB) - текстовый режим 25×80
+0xB1000 - 0xFDFFF : Unmapped (returns 0xFFFF при чтении)
+0xFE000 - 0xFFFFF : ROM Turbo XT BIOS v3.1 (8KB) - 4-byte aligned, read-only
+```
 
 ### Эмулируемые I/O порты
 
@@ -368,20 +409,20 @@ RP8086/
 ### Детальная реализация ключевых компонентов
 
 **cpu_bus.c - Контроллер шины и память:**
-- `i8086_read()`: Оптимизированное чтение с приоритетом проверок:
-  1. VGA port (0x3BA) - самый частый
-  2. Keyboard ports (0x60-0x6F) - range check через `(port & 0xFF0) == 0x60`
-  3. Локальные копии volatile переменных для минимизации доступа к памяти
+- `i8086_read()`: Оптимизированное чтение с маршрутизацией memory vs I/O
+  - Передает BHE для корректной обработки 8/16-битных операций
+  - Вызывает `memory_read()` или `port_read()` в зависимости от M/IO
 - `i8086_write()`: Полная поддержка 8/16 битных операций через BHE и A0
 - `bus_read_handler()`: Обрабатывает INTA (IRQ3) + обычное чтение (IRQ1)
-  - INTA path: возвращает `current_irq_vector`, очищает флаги
+  - INTA path: вызывает `i8259_nextirq()`, возвращает вектор прерывания (IRR → ISR)
   - Обычное чтение: вызывает `i8086_read()` с оптимизацией `unlikely()`
 
 **main.c - Keyboard & Video:**
-- Circular buffer на 16 байт для keyboard scancodes
-- 60 FPS рендеринг видеопамяти через ANSI escape codes
+- Упрощенная клавиатура: один байт `current_scancode` (достаточно для человеческого ввода)
+- 60 FPS рендеринг видеопамяти через ANSI escape codes (Core0)
 - Поддержка букв, цифр, специальных клавиш (Space, Enter, Backspace, Tab, Escape)
 - QWERTY layout для ASCII → Scancode конвертации
+- Генерация IRQ1 через `i8259_interrupt(1)` при вызове `push_scancode()`
 
 **i8086_bus.pio - Высокооптимизированный state machine:**
 
@@ -420,15 +461,19 @@ void i8086_bus_program_init(PIO pio, uint sm, uint offset)
 }
 ```
 
-**Прерывания и многоядерность:**
+**Прерывания и многоядерность (Intel 8259A Compatible):**
 - `pic_init()`: Инициализирует INTR пин (GPIO26) как output, LOW по умолчанию
 - `bus_handler_core()`: Работает на Core1:
   - Инициализация железа: clock → pic → bus → reset
-  - Генерирует IRQ0 каждые 54.925ms (18.2 Hz, IBM PC совместимость)
-  - Управляет INTR: устанавливает HIGH при `current_irq_vector != 0`
+  - Генерирует IRQ0 каждые ~54.925ms через `i8259_interrupt(0)` (динамический timer_interval)
+  - Управляет INTR: устанавливает HIGH при наличии немаскированных IRQ через `i8259_get_pending_irqs()`
+- **Intel 8259A PIC**: Полная эмуляция контроллера прерываний
+  - Регистры: IMR (маски), IRR (запросы), ISR (обслуживание)
+  - Автоматические приоритеты: IRQ0 > IRQ1 > ... > IRQ7 (Fully Nested Mode)
+  - EOI команды для завершения обработки прерываний
 - **INTA через PIO**: Полностью реализован в state machine (IRQ 3)
-- **Keyboard IRQ**: Core0 устанавливает IRQ1 при `push_scancode()` с проверкой приоритета
-- **Упрощенная архитектура**: Нет multicore FIFO, одна переменная `current_irq_vector`
+- **Keyboard IRQ**: Core0 вызывает `i8259_interrupt(1)` при `push_scancode()`
+- **Упрощенная архитектура**: Нет multicore FIFO, прямое взаимодействие через i8259
 
 ## Особенности реализации
 
