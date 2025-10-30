@@ -72,3 +72,24 @@ __always_inline static void write_to(uint8_t *destination, const uint32_t addres
         destination[address] = (uint8_t)(data >> 8);
     }
 }
+
+
+typedef struct {
+    uint8_t interrupt_mask_register; //mask register
+    uint8_t interrupt_request_register; //request register
+    uint8_t in_service_register; //service register
+    uint8_t initialization_command_word_step; //used during initialization to keep track of which ICW we're at
+    uint8_t initialization_command_words_1; // ICW1
+    uint8_t interrupt_vector_offset; //interrupt vector offset
+    uint8_t register_read_mode; //remember what to return on read register from OCW3
+} i8259_s;
+
+typedef struct {
+    uint16_t channel_reload_value[3]; // chandata -> channel reload values (what gets loaded into counters)
+    uint8_t channel_access_mode[3]; // accessmode -> how each channel is accessed (lobyte/hibyte/toggle)
+    uint8_t channel_byte_toggle[3]; // bytetoggle -> tracks which byte to read/write in toggle mode
+    uint32_t channel_effective_count[3]; // effectivedata -> actual count value used by channel
+    float channel_frequency[3]; // chanfreq -> calculated frequency for each channel
+    uint8_t channel_active[3]; // active -> whether channel is actively counting
+    uint16_t channel_current_count[3]; // counter -> current counter value for each channel
+} i8253_s;

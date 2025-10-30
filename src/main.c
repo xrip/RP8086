@@ -6,18 +6,26 @@
 #include "hardware/watchdog.h"
 #include "pico/bootrom.h"
 #include "pico/multicore.h"
+#include "hardware/i8259.h"
+#include "hardware/i8253.h"
 
 // ============================================================================
 // Global Memory Arrays
 // ============================================================================
 uint8_t RAM[RAM_SIZE] __attribute__((aligned(4)));
 uint8_t VIDEORAM[4096] __attribute__((aligned(4)));
-uint8_t PORTS[0xFFF] __attribute__((aligned(4))) = {[0 ... 0xFFE] = 0xFF};
+
+i8259_s i8259 __attribute__((aligned(4))) = {
+    .interrupt_mask_register = 0xFF, // Все IRQ замаскированы по умолчанию
+    .interrupt_vector_offset = 0x08, // Стандартный offset для IBM PC
+};
+uint32_t timer_interval = 54925;
+bool speakerenabled = false;
+i8253_s i8253 __attribute__((aligned(4))) = { 0 };
 
 // ============================================================================
-// IRQ System - Simple Version
+// IRQ System - Intel 8259A Compatible Controller
 // ============================================================================
-uint16_t current_irq_vector = 0; // 0=IRQ0(timer), 1=IRQ1(keyboard)
 
 // ============================================================================
 // Keyboard - Single Scancode (no buffer needed for human input)
@@ -94,15 +102,13 @@ static uint8_t ascii_to_scancode(const int ascii) {
 }
 
 // ============================================================================
-// Set scancode and trigger IRQ1
+// Set scancode and trigger IRQ1 (keyboard interrupt)
 // ============================================================================
 static void push_scancode(const uint8_t scancode) {
     if (scancode == 0x00) return; // Ignore unknown keys
 
     current_scancode = scancode;
-    if (!current_irq_vector) {
-        current_irq_vector = (0xFF00 | 8) + 1; // IRQ 1
-    }
+    i8259_interrupt(1); // IRQ1 - Keyboard interrupt через i8259
 }
 
 void pic_init(void) {
@@ -116,8 +122,6 @@ void pic_init(void) {
 // Core1: Обработка i8086_bus
 // ============================================================================
 [[noreturn]] void bus_handler_core(void) {
-    constexpr uint32_t timer_interval = 54925; // 549ms на 500Khz, 54.925ms на 5Mhz
-
     start_cpu_clock(); // Start i8086 clock generator
     pic_init(); // Initialize interrupt controller and start Core1 IRQ generator
     cpu_bus_init(); // Initialize bus BEFORE releasing i8086 from reset
@@ -128,17 +132,17 @@ void pic_init(void) {
 
     while (true) {
         // ═══════════════════════════════════════════════════════
-        // 1. Генерация таймерного прерывания IRQ0
+        // 1. Генерация таймерного прерывания IRQ0 (18.2 Hz)
         // ═══════════════════════════════════════════════════════
         if (absolute_time_diff_us(next_irq0, get_absolute_time()) >= 0) {
-            current_irq_vector = (0xFF00 | 8) + 0; // IRQ 0
+            i8259_interrupt(0);
             next_irq0 = delayed_by_us(next_irq0, timer_interval);
         }
 
         // ═══════════════════════════════════════════════════════
-        // 2. Управление сигналом INTR (приоритет: IRQ0 > IRQ1)
+        // 2. Управление сигналом INTR (проверка pending IRQ в IRR)
         // ═══════════════════════════════════════════════════════
-        gpio_put(INTR_PIN, current_irq_vector ? 1 : 0);
+        gpio_put(INTR_PIN, i8259_get_pending_irqs());
 
         tight_loop_contents();
     }
@@ -215,16 +219,6 @@ void pic_init(void) {
                 for (int j = 0; j < 16; j++) {
                     uint8_t value = VIDEORAM[i + j];
                     printf("%c", value);
-                }
-                printf("\n");
-            }
-        } else if (c == 'P') {
-            printf("\nPorts dump (first 400 bytes):\n");
-            for (int i = 0; i < 0x3FF; i += 16) {
-                printf("%04X: ", i);
-                for (int j = 0; j < 16; j++) {
-                    uint8_t value = PORTS[i + j];
-                    printf("%02X ", value);
                 }
                 printf("\n");
             }
