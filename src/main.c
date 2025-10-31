@@ -183,8 +183,8 @@ void pic_init(void) {
 
     absolute_time_t next_frame = get_absolute_time();
     next_frame = delayed_by_us(next_frame, 16666);
-
-    bool video_enabled = false;
+ 
+    bool video_enabled = true;
 
     while (true) {
         // Отрисовка MDA фреймбуфера

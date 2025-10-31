@@ -281,7 +281,7 @@ __force_inline static void i8272_cmd_read_data(void) {
         i8272.result_buffer[6] = sector_size_code;  // N
 
         // CRITICAL DEBUG: Log only result phase (minimal overhead)
-        printf("FDC_RES: C=%d H=%d R_start=%d R_end=%d bytes=%d TC=%d\n",
+        debug_log("FDC_RES: C=%d H=%d R_start=%d R_end=%d bytes=%d TC=%d\n",
                cylinder, head, start_sector, current_sector, total_bytes_transferred, dma_channels[2].finished);
     }
 

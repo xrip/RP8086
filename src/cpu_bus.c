@@ -26,9 +26,6 @@ __force_inline static void i8086_write(const uint32_t address, const uint16_t da
 }
 
 void __time_critical_func(bus_write_handler)() {
-    // Упрощено: обрабатываем ровно одну транзакцию.
-    // PIO генерирует IRQ на каждую запись, поэтому цикл избыточен.
-    // Это уменьшает register pressure и упрощает IRQ prologue/epilogue.
     const uint32_t bus_state = BUS_CTRL_PIO->rxf[BUS_CTRL_SM];
     const uint16_t data = BUS_CTRL_PIO->rxf[BUS_CTRL_SM];
 
