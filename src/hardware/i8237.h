@@ -14,6 +14,7 @@
 #define DMA_MODE_REGISTER 0x0B
 #define DMA_CLEAR_FF 0x0C          // Clear flip-flop port
 #define DMA_STATUS_REGISTER 0x0D
+#define DMA_MASTER_CLEAR 0x0D
 #define DMA_TEMP_REGISTER 0x0E
 #define DMA_MASK_REGISTER 0x0F
 
@@ -22,6 +23,7 @@
 extern dma_channel_s dma_channels[DMA_CHANNELS];
 
 static bool byte_pointer_flipflop, memory_to_memory_enabled;
+
 
 __force_inline static void i8237_reset() {
     memset(dma_channels, 0x00, sizeof(dma_channel_s) * DMA_CHANNELS);
@@ -90,23 +92,26 @@ __force_inline static void i8237_writeport(const uint16_t port_number, const uin
         case DMA_REQUEST_REGISTER: //DMA request register
             dma_channels[data & 3].dreq = (data >> 2) & 1;
             break;
-        case DMA_CHANNEL_MASK_REGISTER: //DMA channel 0-3 mask register
-            const uint8_t ch = data & 3;
-            const bool new_mask = (data >> 2) & 1;
+        case DMA_CHANNEL_MASK_REGISTER: {
+            //DMA channel 0-3 mask register
+            const uint8_t channel = data & 3;
+            const bool mask = (data >> 2) & 1;
 
             // При unmask (0→1 transition) копируем reload → current
-            if (dma_channels[ch].masked && !new_mask) {
-                dma_channels[ch].address = dma_channels[ch].reload_address;
-                dma_channels[ch].count = dma_channels[ch].reload_count;
-                if (ch == 2) {
+            if (dma_channels[channel].masked && !mask) {
+                dma_channels[channel].address = dma_channels[channel].reload_address;
+                dma_channels[channel].count = dma_channels[channel].reload_count;
+                if (channel == 2) {
                     debug_log("[%llu] DMA UNMASK: CH2 address=0x%04X, count=0x%04X (reload→current)\n",
                            to_us_since_boot(get_absolute_time()), dma_channels[ch].address, dma_channels[ch].count);
                 }
             }
 
-            dma_channels[ch].masked = new_mask;
+            dma_channels[channel].masked = mask;
             break;
-        case DMA_MODE_REGISTER: //DMA channel 0-3 mode register
+        }
+        case DMA_MODE_REGISTER: {
+            //DMA channel 0-3 mode register
             const uint8_t channel = data & 3;
             dma_channels[channel].transfer_type = (data >> 2) & 3;
             dma_channels[channel].auto_init = (data >> 4) & 1;
@@ -115,7 +120,8 @@ __force_inline static void i8237_writeport(const uint16_t port_number, const uin
             debug_log("DMA MODE: CH%d raw=0x%02X, auto_init=%d, transfer_type=%d (0=verify,1=write,2=read), mode=%d\n",
                    channel, data, dma_channels[channel].auto_init, dma_channels[channel].transfer_type, dma_channels[channel].mode);
             break;
-        case DMA_STATUS_REGISTER: // DMA master clear
+        }
+        case DMA_MASTER_CLEAR: // DMA master clear
             i8237_reset();
             break;
         case DMA_TEMP_REGISTER: // Mask Reset
@@ -125,23 +131,25 @@ __force_inline static void i8237_writeport(const uint16_t port_number, const uin
             byte_pointer_flipflop = 0;
             debug_log("DMA CLEAR_FF: byte_pointer_flipflop reset to 0\n");
             break;
-        case DMA_MASK_REGISTER: //DMA write mask register
-            for (int i = 0; i < 4; i++) {
-                const bool new_mask = (data >> i) & 1;
+        case DMA_MASK_REGISTER: {
+            //DMA write mask register
+            for (int channel = 0; channel < 4; channel++) {
+                const bool mask = (data >> channel) & 1;
 
                 // При unmask копируем reload → current
-                if (dma_channels[i].masked && !new_mask) {
-                    dma_channels[i].address = dma_channels[i].reload_address;
-                    dma_channels[i].count = dma_channels[i].reload_count;
-                    if (i == 2) {
+                if (dma_channels[channel].masked && !mask) {
+                    dma_channels[channel].address = dma_channels[channel].reload_address;
+                    dma_channels[channel].count = dma_channels[channel].reload_count;
+                    if (channel == 2) {
                         debug_log("DMA UNMASK (0x0F): CH2 address=0x%04X, count=0x%04X (reload→current)\n",
                                dma_channels[i].address, dma_channels[i].count);
                     }
                 }
 
-                dma_channels[i].masked = new_mask;
+                dma_channels[channel].masked = mask;
             }
             break;
+        }
     }
 }
 
@@ -199,21 +207,23 @@ __force_inline static uint8_t i8237_readport(const uint16_t port_number) {
             byte_pointer_flipflop ^= 1;
             break;
         }
-        case 0x08: //status register
+        case 0x08: {
+            //status register
             // Bits 0-3: DMA request status for channels 0-3
             // Bits 4-7: Terminal Count reached for channels 0-3
             register_value = 0;
-            for (int i = 0; i < 4; i++) {
-                if (dma_channels[i].dreq) {
-                    register_value |= (1 << i);  // DREQ status
+            for (int channel = 0; channel < 4; channel++) {
+                if (dma_channels[channel].dreq) {
+                    register_value |= 1 << channel;  // DREQ status
                 }
-                if (dma_channels[i].finished) {
-                    register_value |= (1 << (i + 4));  // TC status
-                    dma_channels[i].finished = 0;  // Clear TC flag on read (per Intel 8237A spec)
+                if (dma_channels[channel].finished) {
+                    register_value |= 1 << (channel + 4);  // TC status
+                    dma_channels[channel].finished = 0;  // Clear TC flag on read (per Intel 8237A spec)
                 }
             }
             debug_log("[%llu] DMA STATUS READ: 0x%02X (DREQ=0x%01X, TC=0x%01X)\n",
                    to_us_since_boot(get_absolute_time()), register_value, register_value & 0x0F, (register_value >> 4) & 0x0F);
+        }
     }
     return register_value;
 }
@@ -272,7 +282,7 @@ __force_inline void update_count(const uint8_t channel, const uint16_t count) {
 }
 
 // Stub function to read from 8086 ram/rom
-__force_inline static uint8_t i8237_read(const uint8_t channel) {
+__force_inline static uint8_t i8237_read(const uint8_t channel, const uint8_t * destination, const size_t size) {
     if (dma_channels[channel].masked) return 0;
 
     const uint32_t memory_address = dma_channels[channel].page + dma_channels[channel].address;
@@ -284,82 +294,37 @@ __force_inline static uint8_t i8237_read(const uint8_t channel) {
     return read_data;
 }
 
-// DMA write to 8086 memory
-// Возвращает количество ФАКТИЧЕСКИ записанных байт (может быть меньше size, если достигнут Terminal Count)
-__force_inline static uint32_t i8237_write(const uint8_t channel, const uint8_t * src, size_t size) {
-    const uint32_t page = dma_channels[channel].page;
-    const uint32_t base_address = page + dma_channels[channel].address;
-
-    debug_log("[%llu] DMA WRITE START: CH%d, src=0x%08X, dst=0x%05X, size=%d, DMA_count=%d\n",
-           to_us_since_boot(get_absolute_time()), channel, (uint32_t)src, base_address, size, dma_channels[channel].count);
-
+__force_inline static uint32_t i8237_write(const uint8_t channel_index, const uint8_t *src, const size_t size) {
     extern uint8_t RAM[];
+    dma_channel_s *channel = &dma_channels[channel_index];
+    if (channel->masked) return 0;
 
-    // КРИТИЧЕСКИ ВАЖНО: Intel 8237A останавливает передачу при достижении Terminal Count!
-    // Terminal Count происходит когда count переходит с 0 на 0xFFFF (underflow)
-    // Мы должны остановиться, если запрошенный размер превышает оставшийся count
+    // Вычисляем физический адрес
+    const uint32_t address = channel->page + channel->address;
+    const uint32_t remaining = (uint32_t)channel->count + 1; // до Terminal Count
+    uint32_t actual_size = (size > remaining) ? remaining : size;
 
-    // Сколько байт осталось до Terminal Count (count+1, потому что 0 означает "еще 1 байт")
-    const uint32_t bytes_until_tc = (uint32_t)dma_channels[channel].count + 1;
-    const uint32_t actual_size = (size > bytes_until_tc) ? bytes_until_tc : size;
-
-    if (actual_size < size) {
-        debug_log("[%llu] DMA: LIMITING transfer from %zu to %u bytes (TC would occur)\n",
-               to_us_since_boot(get_absolute_time()), size, actual_size);
+    // Проверка выхода за пределы RAM
+    if (address >= RAM_SIZE) {
+        debug_log("DMA: channel %d start 0x%05X outside RAM (ignored)\n", channel, phys);
+        channel->finished = 1;
+        channel->masked = 1;
+        return 0;
     }
 
-    // Intel 8237A DMA wrapping: адрес оборачивается только внутри 64KB сегмента
-    // (только младшие 16 бит инкрементируются, page register остается неизменным)
-    size_t bytes_written = 0;
-    while (bytes_written < actual_size) {
-        // Текущий 16-битный offset в сегменте (с оборачиванием)
-        const uint16_t current_offset = (dma_channels[channel].address + bytes_written) & 0xFFFF;
-        const uint32_t physical_address = page + current_offset;
+    const uint32_t max_size = RAM_SIZE - address;
+    if (actual_size > max_size) actual_size = max_size;
 
-        // Сколько байт до конца 64KB сегмента
-        const size_t bytes_to_segment_end = 0x10000 - current_offset;
-        const size_t bytes_to_write = (actual_size - bytes_written < bytes_to_segment_end)
-                                      ? (actual_size - bytes_written)
-                                      : bytes_to_segment_end;
+    memcpy(&RAM[address], src, actual_size);
 
-        // Проверка границ RAM для КАЖДОЙ части записи (до и после оборачивания)
-        if (physical_address < RAM_SIZE) {
-            // Адрес внутри RAM - определяем сколько можем записать
-            const size_t safe_size = (physical_address + bytes_to_write > RAM_SIZE)
-                                     ? (RAM_SIZE - physical_address)
-                                     : bytes_to_write;
+    update_count(channel_index, actual_size);
 
-            if (safe_size > 0) {
-                memcpy(RAM + physical_address, src + bytes_written, safe_size);
-            }
+    debug_log("DMA: CH%d wrote %u bytes to 0x%05X, new_count=%04X, TC=%d\n",
+        channel, actual, phys, ch->count, ch->finished);
 
-            if (safe_size < bytes_to_write) {
-                debug_log("[%llu] DMA: write at 0x%05X truncated (%zu/%zu bytes) - beyond RAM (size=0x%05X)\n",
-                       to_us_since_boot(get_absolute_time()), physical_address, safe_size, bytes_to_write, RAM_SIZE);
-            }
-        } else {
-            // Адрес полностью за пределами RAM - ничего не пишем
-            debug_log("[%llu] DMA: write at 0x%05X (%zu bytes) - beyond RAM (size=0x%05X), discarded\n",
-                   to_us_since_boot(get_absolute_time()), physical_address, bytes_to_write, RAM_SIZE);
-        }
-
-        bytes_written += bytes_to_write;
-
-        // Если достигли конца сегмента, логируем оборачивание
-        if (current_offset + bytes_to_write >= 0x10000) {
-            debug_log("[%llu] DMA: 64KB segment wrap - continuing at page 0x%02X, offset 0x0000\n",
-                   to_us_since_boot(get_absolute_time()), (page >> 16) & 0xFF);
-        }
-    }
-
-    update_count(channel, actual_size);
-
-    debug_log("[%llu] DMA WRITE END: CH%d, wrote %zu/%zu bytes, new_count=%d, TC=%d\n",
-           to_us_since_boot(get_absolute_time()), channel, bytes_written, size,
-           dma_channels[channel].count, dma_channels[channel].finished);
-
-    return bytes_written;
+    return actual_size;
 }
+
 #if defined(DEBUG_I8237)
 #undef debug_log
 #endif

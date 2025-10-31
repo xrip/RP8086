@@ -201,94 +201,22 @@ __force_inline static void i8272_cmd_seek(void) {
     i8272.msr_rqm = 1;
 }
 
-__force_inline static void i8272_cmd_read_data(void) {
-    const uint8_t head = (i8272.command_buffer[1] >> 2) & 1;
-    i8272.current_drive = i8272.command_buffer[1] & 0x03;
-    const uint8_t cylinder = i8272.command_buffer[2];
-    const uint8_t start_sector = i8272.command_buffer[4];
-    const uint8_t eot = i8272.command_buffer[6];  // End of Track - last sector number on track
-    const uint8_t sector_size_code = i8272.command_buffer[5];  // N: 0=128, 1=256, 2=512, 3=1024
+// -----------------------------------------------------------------------------
+// Общие вспомогательные функции
+// -----------------------------------------------------------------------------
 
-    // Всегда логируем READ_DATA - это критически важная команда
-    debug_log("[%llu] FDC: READ_DATA - C=%d, H=%d, R=%d (start), EOT=%d, N=%d, Drive=%d\n",
-           to_us_since_boot(get_absolute_time()), cylinder, head, start_sector, eot, sector_size_code, i8272.current_drive);
-
-    if (cylinder >= FDD_CYLINDERS || head >= FDD_HEADS ||
-        start_sector < 1 || start_sector > FDD_SECTORS_PER_TRACK) {
-        debug_log("[%llu] FDC: READ_DATA ERROR - Invalid parameters (C=%d/%d, H=%d/%d, R=%d)\n",
-               to_us_since_boot(get_absolute_time()), cylinder, FDD_CYLINDERS, head, FDD_HEADS, start_sector);
-
-        i8272.result_buffer[0] = 0x40;  // Abnormal termination
-        i8272.result_buffer[1] = 0x80;  // No data
-        i8272.result_buffer[2] = 0x00;
-        i8272.result_buffer[3] = cylinder;
-        i8272.result_buffer[4] = head;
-        i8272.result_buffer[5] = start_sector;
-        i8272.result_buffer[6] = sector_size_code;
-    } else {
-        // КРИТИЧЕСКИ ВАЖНО: Контроллер 8272A читает данные до тех пор, пока:
-        // 1. Не достигнут сектор EOT, ИЛИ
-        // 2. DMA контроллер не установит сигнал Terminal Count (TC)
-        //
-        // BIOS программирует DMA на ТОЧНОЕ количество байт (например, 512 для 1 сектора)
-        // и передает EOT как максимальный номер сектора на дорожке.
-        // Когда DMA досчитывает до 0, он устанавливает TC, и 8272A останавливается.
-        //
-        // Мы эмулируем это поведение: читаем данные порциями по 512 байт,
-        // проверяя TC после каждого сектора. DMA контроллер сам управляет счетчиком.
-
-        const uint32_t start_lba = (cylinder * FDD_HEADS + head) * FDD_SECTORS_PER_TRACK + (start_sector - 1);
-        uint32_t offset = start_lba * FDD_SECTOR_SIZE;
-
-        uint8_t current_sector = start_sector;
-        uint32_t total_bytes_transferred = 0;
-
-        // Читаем сектора последовательно, пока DMA не установит TC
-        while (current_sector <= eot && current_sector <= FDD_SECTORS_PER_TRACK) {
-            // Передаем один сектор через DMA
-            const uint32_t bytes_written = i8237_write(2, &FDD360[offset], FDD_SECTOR_SIZE);
-            total_bytes_transferred += bytes_written;
-            offset += FDD_SECTOR_SIZE;
-            current_sector++;
-
-            // КРИТИЧЕСКИ ВАЖНО: Проверяем флаг TC в DMA контроллере!
-            // Флаг finished устанавливается когда count переходит через 0 → 0xFFFF
-            if (dma_channels[2].finished) {
-                // TC установлен - DMA досчитал до конца, останавливаем передачу
-                debug_log("[%llu] FDC: READ_DATA stopped by DMA TC after %d bytes (%d sectors), last_sector=R%d\n",
-                       to_us_since_boot(get_absolute_time()), total_bytes_transferred,
-                       total_bytes_transferred / FDD_SECTOR_SIZE, current_sector - 1);
-
-                // КРИТИЧНО: Сбрасываем флаг TC, чтобы следующая команда READ_DATA не остановилась сразу!
-                // Этот флаг читается только FDC, поэтому мы можем безопасно его сбросить здесь.
-                dma_channels[2].finished = 0;
-                break;
-            }
-        }
-
-        debug_log("[%llu] FDC: READ_DATA OK - LBA=%d, total=%d bytes (%d sectors), R=%d to R=%d\n",
-               to_us_since_boot(get_absolute_time()), start_lba, total_bytes_transferred,
-               (total_bytes_transferred + FDD_SECTOR_SIZE - 1) / FDD_SECTOR_SIZE, start_sector, current_sector - 1);
-
-        // Intel 8272A Result Phase: 7 bytes (ST0, ST1, ST2, C, H, R, N)
-        // ST0: IC(7-6)=00 (Normal), SE(5)=0, EC(4)=0, NR(3)=0, HD(2), US(1-0)
-        i8272.result_buffer[0] = (head << 2) | (i8272.current_drive & 0x03);  // ST0
-        i8272.result_buffer[1] = 0x00;  // ST1: No errors
-        i8272.result_buffer[2] = 0x00;  // ST2: No errors
-        i8272.result_buffer[3] = cylinder;  // C
-        i8272.result_buffer[4] = head;      // H
-        i8272.result_buffer[5] = current_sector;  // R: номер следующего сектора после последнего прочитанного
-        i8272.result_buffer[6] = sector_size_code;  // N
-
-        // CRITICAL DEBUG: Log only result phase (minimal overhead)
-        debug_log("FDC_RES: C=%d H=%d R_start=%d R_end=%d bytes=%d TC=%d\n",
-               cylinder, head, start_sector, current_sector, total_bytes_transferred, dma_channels[2].finished);
-    }
-
+static void i8272_set_result(uint8_t st0, uint8_t st1, uint8_t st2,
+                             uint8_t c, uint8_t h, uint8_t r, uint8_t n) {
+    i8272.result_buffer[0] = st0;
+    i8272.result_buffer[1] = st1;
+    i8272.result_buffer[2] = st2;
+    i8272.result_buffer[3] = c;
+    i8272.result_buffer[4] = h;
+    i8272.result_buffer[5] = r;
+    i8272.result_buffer[6] = n;
     i8272.result_count = 7;
     i8272.result_index = 0;
 
-    // Готовим MSR для чтения результата
     i8272.msr_rqm = 1;
     i8272.msr_dio = 1;
     i8272.msr_busy = 1;
@@ -297,6 +225,67 @@ __force_inline static void i8272_cmd_read_data(void) {
     i8272_irq();
     i8272.command_index = 0;
 }
+
+static bool i8272_validate_chrn(uint8_t c, uint8_t h, uint8_t r) {
+    return !(c >= FDD_CYLINDERS || h >= FDD_HEADS ||
+             r < 1 || r > FDD_SECTORS_PER_TRACK);
+}
+
+// -----------------------------------------------------------------------------
+// READ DATA (0x06)
+// -----------------------------------------------------------------------------
+
+__force_inline static void i8272_cmd_read_data(void) {
+    uint8_t drive  = i8272.command_buffer[1] & 3;
+    uint8_t head   = (i8272.command_buffer[1] >> 2) & 1;
+    uint8_t cyl    = i8272.command_buffer[2];
+    uint8_t sector = i8272.command_buffer[4];
+    uint8_t eot    = i8272.command_buffer[6];
+    uint8_t ncode  = i8272.command_buffer[5];
+
+    if (!i8272_validate_chrn(cyl, head, sector)) {
+        i8272_set_result(0x40, 0x80, 0x00, cyl, head, sector, ncode);
+        return;
+    }
+
+    uint8_t count = MIN(eot - sector + 1, FDD_SECTORS_PER_TRACK - sector + 1);
+    uint32_t offset = ((cyl * FDD_HEADS + head) * FDD_SECTORS_PER_TRACK + (sector - 1)) * FDD_SECTOR_SIZE;
+    uint32_t size = count * FDD_SECTOR_SIZE;
+
+    uint32_t transferred = i8237_write(2, &FDD360[offset], size);
+    uint8_t last_sector = sector + (transferred / FDD_SECTOR_SIZE) - 1;
+
+    i8272_set_result((head << 2) | drive, 0x00, 0x00, cyl, head, last_sector, ncode);
+}
+
+// -----------------------------------------------------------------------------
+// WRITE DATA (0x05)
+// -----------------------------------------------------------------------------
+
+__force_inline static void i8272_cmd_write_data(void) {
+    uint8_t drive  = i8272.command_buffer[1] & 3;
+    uint8_t head   = (i8272.command_buffer[1] >> 2) & 1;
+    uint8_t cyl    = i8272.command_buffer[2];
+    uint8_t sector = i8272.command_buffer[4];
+    uint8_t eot    = i8272.command_buffer[6];
+    uint8_t ncode  = i8272.command_buffer[5];
+
+    if (!i8272_validate_chrn(cyl, head, sector)) {
+        i8272_set_result(0x40, 0x80, 0x00, cyl, head, sector, ncode);
+        return;
+    }
+
+    uint8_t count = MIN(eot - sector + 1, FDD_SECTORS_PER_TRACK - sector + 1);
+    uint32_t offset = ((cyl * FDD_HEADS + head) * FDD_SECTORS_PER_TRACK + (sector - 1)) * FDD_SECTOR_SIZE;
+    uint32_t size = count * FDD_SECTOR_SIZE;
+
+    uint32_t received = i8237_read(2, &FDD360[offset], size);
+    uint8_t last_sector = sector + (received / FDD_SECTOR_SIZE) - 1;
+
+    i8272_set_result((head << 2) | drive, 0x00, 0x00, cyl, head, last_sector, ncode);
+}
+
+
 
 __force_inline static void i8272_write_command(const uint8_t data) {
     if (!i8272.msr_rqm || i8272.msr_dio || i8272.msr_busy) {

@@ -2,7 +2,6 @@
 #include "common.h"
 #include "rom/bios.h"
 #include "rom/basic.h"
-#include "rom/floppy.h"
 #include <stdio.h>
 
 // ============================================================================
