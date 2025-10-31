@@ -20,7 +20,7 @@ uint8_t RAM[RAM_SIZE] __attribute__((aligned(4)));
 uint8_t VIDEORAM[4096] __attribute__((aligned(4)));
 
 i8259_s i8259 __attribute__((aligned(4))) = {
-    .interrupt_mask_register = 0xBF, // Все IRQ замаскированы, кроме IRQ6 (бит 6 = 0)
+    .interrupt_mask_register = 0xFF, // Все IRQ замаскированы, кроме IRQ6 (бит 6 = 0)
     .interrupt_vector_offset = 0x08, // Стандартный offset для IBM PC
 };
 i8253_s i8253 __attribute__((aligned(4))) = { 0 };
@@ -34,10 +34,6 @@ dma_channel_s dma_channels[DMA_CHANNELS] = {
 
 i8272_s i8272 __attribute__((aligned(4))) = { 0 };
 
-// Floppy geometry globals (используются в i8272.h)
-uint16_t FDD_CYLINDERS = 40;
-uint16_t FDD_HEADS = 2;
-uint16_t FDD_SECTORS_PER_TRACK = 8;
 
 uint32_t timer_interval = 54925;
 bool speakerenabled = false;
@@ -143,7 +139,6 @@ void pic_init(void) {
 [[noreturn]] void bus_handler_core(void) {
     start_cpu_clock(); // Start i8086 clock generator
     pic_init(); // Initialize interrupt controller and start Core1 IRQ generator
-    fdd_detect_geometry(sizeof(FDD360)); // Auto-detect floppy geometry from FDD360[] size
     i8272_reset(); // Initialize floppy disk controller
     cpu_bus_init(); // Initialize bus BEFORE releasing i8086 from reset
     reset_cpu(); // Now i8086 can safely start

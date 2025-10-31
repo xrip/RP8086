@@ -19,9 +19,8 @@ __force_inline static uint16_t memory_read(const uint32_t address) {
         return *(uint16_t *)&RAM[address];
     }
 
-    // Video RAM: MDA 0xB0000-0xB0FFF (4KB) or CGA 0xB8000-0xB8FFF (4KB)
-    // Обе области отображаются в один массив VIDEORAM[4KB]
-    if (((address - 0xB0000) < 0x1000) || ((address - 0xB8000) < 0x1000)) {
+    // Video RAM: MDA 0xB0000-0xB0FFF (4KB)
+    if ((address - 0xB0000) < 0x1000) {
         return *(uint16_t *)&VIDEORAM[address & 0xFFF];
     }
 
