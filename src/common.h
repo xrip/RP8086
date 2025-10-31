@@ -44,7 +44,7 @@
 // ============================================================================
 // Memory Configuration
 // ============================================================================
-#define RAM_SIZE               (192 * 1024)                       // 192KB RAM
+#define RAM_SIZE               (192 * 1024)                       // 192KB RAM (maximum that fits)
 #define BIOS_ROM_SIZE          8192                               // 8KB BIOS
 #define BIOS_ROM_BASE          (0x100000 - BIOS_ROM_SIZE)         // 0xFE000-0xFFFFF
 
@@ -93,6 +93,8 @@ typedef struct {
     float channel_frequency[3]; // chanfreq -> calculated frequency for each channel
     uint8_t channel_active[3]; // active -> whether channel is actively counting
     uint16_t channel_current_count[3]; // counter -> current counter value for each channel
+    uint16_t channel_latched_value[3]; // latched value for LATCHCOUNT mode
+    uint8_t channel_latch_mode[3]; // latch mode: 0=not latched, 1=lobyte, 2=hibyte, 3=toggle
 } i8253_s;
 
 typedef struct {
