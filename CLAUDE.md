@@ -307,10 +307,17 @@ Critical bus signals are hardcoded in `i8086_bus.pio`:
 - ✅ **Intel 8253 PIT**: Программируемый таймер с 3 каналами (порты 0x40-0x43)
 - ✅ **Прямая эмуляция портов**: Удален массив PORTS[], каждое устройство эмулируется напрямую
 
+**Recently implemented (Последние достижения):**
+- ✅ **Intel 8237 DMA Controller**: 4 канала, auto-initialization, memory-to-memory режимы
+- ✅ **Intel 8272A Floppy Disk Controller**: Полная эмуляция с IRQ6 и DMA интеграцией
+- ✅ **Дисковая подсистема**: Поддержка загрузки DR-DOS 7 с дискет, автоопределение геометрии
+- ✅ **DMA+FDC протокол**: Прямой доступ к памяти для операций чтения/записи секторов
+- ✅ **IRQ6 поддержка**: Прерывания от дисковода через Intel 8259A
+
 **Not yet implemented (Фаза 2):**
 - ⚠️ Additional I/O devices (UART, speaker hardware emulation)
-- ⚠️ External interrupts (IRQ2-IRQ7 via 8259A)
-- ⚠️ DMA controller (Intel 8237A)
+- ⚠️ External interrupts (IRQ2-IRQ5, IRQ7 via 8259A)
+- ⚠️ ISA bus support: подключение внешних устройств (video cards, sound cards)
 - ⚠️ Full speed operation (5 MHz+)
 - ⚠️ Additional video modes (CGA/EGA compatibility)
 
@@ -332,6 +339,10 @@ Add cases to `i8086_read()` and `i8086_write()` in `cpu_bus.c`. These functions 
 - bhe flag для 8/16 битных операций
 
 **Текущие порты:**
+- Порты 0x00-0x0F: Intel 8237 DMA (Direct Memory Access Controller)
+  - 4 независимых канала с адресами и счетчиками
+  - Режимы: memory-to-memory, auto-initialization, verify
+  - Page registers на портах 0x81/82/83/87
 - Порты 0x20-0x21: Intel 8259A PIC (Programmable Interrupt Controller)
   - Полная эмуляция ICW1-ICW4 (Initialization Command Words)
   - Полная эмуляция OCW1-OCW3 (Operation Command Words)
@@ -340,16 +351,50 @@ Add cases to `i8086_read()` and `i8086_write()` in `cpu_bus.c`. These functions 
   - 3 независимых канала с reload values
   - Режимы доступа: LOBYTE, HIBYTE, TOGGLE
   - Динамическая настройка timer_interval
+- Порты 0x3F0-0x3F7: Intel 8272A FDC (Floppy Disk Controller)
+  - Полная эмуляция команд чтения/записи секторов
+  - Интеграция с DMA для высокоскоростной передачи данных
+  - Генерация IRQ6 при завершении операций
 - Порт 0x60: Keyboard Data Port (читает `current_scancode`, сбрасывает в 0)
-- Порт 0x64: Keyboard Status Port (bit 0 = `current_scancode != 0`)
+- Порт 0x61: System Control Port B (timer gate, speaker enable, error status)
+- Порт 0x64: Keyboard Status Port (Intel 8042 controller, system flag)
 - Порт 0x3BA: VGA status register (эмуляция vsync битов, приоритет проверки)
 
-**Архитектура портов (НОВОЕ):**
+**Архитектура портов (ОБНОВЛЕНО):**
 - **Прямая эмуляция**: Массив `PORTS[]` удален, каждое устройство эмулируется через отдельные функции
 - **Разделение функций**: `port_read8()`/`port_write8()` для 8-битных операций
 - **16-битная обработка**: `port_read()`/`port_write()` корректно обрабатывают BHE и A0
-- **Оптимизация**: Приоритетная проверка часто используемых портов (VGA → 8259A → 8253 → Keyboard)
+- **Оптимизация**: Приоритетная проверка часто используемых портов (DMA → 8259A → 8253 → FDC → Keyboard)
+- **DMA+FDC интеграция**: Протокол обмена данными между контроллером дисковода и DMA
 - **Экономия памяти**: Удален массив 4KB, используются только структуры устройств
+
+### Floppy Disk & DMA Subsystem
+
+**Intel 8272A Floppy Disk Controller:**
+- **Полная эмуляция**: Все команды FDC с поддержкой чтения/записи секторов
+- **IRQ6 поддержка**: Прерывания генерируются через Intel 8259A при завершении операций
+- **DMA интеграция**: Прямой доступ к памяти для высокоскоростной передачи данных
+- **Автоопределение геометрии**: По размеру образа дискеты (160KB-1.44MB)
+- **Поддерживаемые форматы**: 160KB, 180KB, 320KB, 360KB, 720KB, 1.2MB, 1.44MB
+
+**Intel 8237 DMA Controller:**
+- **4 канала**: Независимая работа с адресами и счетчиками
+- **Memory-to-Memory**: Прямое копирование между областями памяти
+- **Auto-initialization**: Автоматическая перезагрузка счетчиков
+- **Page Registers**: Поддержка 20-битных адресов (порты 0x81/82/83/87)
+
+**Загрузочная система:**
+- **DR-DOS 7**: Основная ОС (fdd0.img, 1.44MB FAT12)
+- **BIOS интеграция**: Полная поддержка INT 13h через Turbo XT BIOS v3.1
+- **Boot sequence**: Стандартная загрузка IBM PC compatible
+- **Доступные образы**: fdd0.img, FDD360[] (ROM), Disk01.img и другие
+
+**Процесс загрузки:**
+1. BIOS POST → инициализация оборудования (8237, 8272, 8259, 8253)
+2. INT 19h → загрузчик с диска A:
+3. FDC + DMA чтение boot sector в память по адресу 0x7C00
+4. Передача управления на загрузчик DR-DOS
+5. Инициализация ядра ОС и вывод командной строки
 
 ### USB Commands (main.c)
 
@@ -554,9 +599,13 @@ intel_8259a_specifications:
 ```
 
 **Key Technical References:**
-- IBM PC compatible interrupt vectors (IRQ0 = 0x08, IRQ1 = 0x09)
+- IBM PC compatible interrupt vectors (IRQ0 = 0x08, IRQ1 = 0x09, IRQ6 = 0x0E)
 - 8253 system timer configuration (18.2 Hz, port 0x40-0x43)
 - 8259A initialization sequence (ICW1 → ICW2 → ICW3 → ICW4)
+- 8237 DMA channel configuration (ports 0x00-0x0F, page registers 0x81/82/83/87)
+- 8272A floppy disk commands (read/write sector, seek, recalibrate)
+- DR-DOS 7 boot sequence and INT 13h disk services
 - 8086 bus timing requirements (ALE, RD/WR, READY signals)
+- DMA+FDC integration protocol for sector read/write operations
 - перед коммитом изменений спросить разрешение
 - Никогда не коммить изменения без моего согласия
