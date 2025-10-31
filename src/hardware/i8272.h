@@ -226,9 +226,8 @@ __force_inline static void i8272_set_result(uint8_t st0, uint8_t st1, uint8_t st
     i8272.command_index = 0;
 }
 
-__force_inline static bool i8272_validate_chrn(uint8_t c, uint8_t h, uint8_t r) {
-    return !(c >= FDD_CYLINDERS || h >= FDD_HEADS ||
-             r < 1 || r > FDD_SECTORS_PER_TRACK);
+__force_inline static bool i8272_validate_chs(const uint8_t c, const uint8_t h, const uint8_t s) {
+    return c < FDD_CYLINDERS && h < FDD_HEADS && s - 1 < FDD_SECTORS_PER_TRACK;
 }
 
 // -----------------------------------------------------------------------------
@@ -243,7 +242,7 @@ __force_inline static void i8272_cmd_read_data(void) {
     uint8_t eot    = i8272.command_buffer[6];
     uint8_t ncode  = i8272.command_buffer[5];
 
-    if (!i8272_validate_chrn(cyl, head, sector)) {
+    if (!i8272_validate_chs(cyl, head, sector)) {
         i8272_set_result(0x40, 0x80, 0x00, cyl, head, sector, ncode);
         return;
     }
@@ -270,7 +269,7 @@ __force_inline static void i8272_cmd_write_data(void) {
     uint8_t eot    = i8272.command_buffer[6];
     uint8_t ncode  = i8272.command_buffer[5];
 
-    if (!i8272_validate_chrn(cyl, head, sector)) {
+    if (!i8272_validate_chs(cyl, head, sector)) {
         i8272_set_result(0x40, 0x80, 0x00, cyl, head, sector, ncode);
         return;
     }
