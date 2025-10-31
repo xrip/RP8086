@@ -135,7 +135,6 @@ __force_inline static void i8272_cmd_recalibrate(void) {
 
     debug_log("FDC: RECALIBRATE - Drive=%d, target cylinder=0, IRQ6 sent\n", i8272.current_drive);
 
-    i8272.interrupt_pending = 1;
     i8272_irq();
     i8272.command_index = 0;
     i8272.msr_busy = 0;
@@ -143,15 +142,13 @@ __force_inline static void i8272_cmd_recalibrate(void) {
 }
 
 __force_inline static void i8272_cmd_sense_interrupt(void) {
-    uint8_t st0 = 0x20 | i8272.current_drive;
-    i8272.result_buffer[0] = st0;
+    i8272.result_buffer[0] = 0x20 | i8272.current_drive;
     i8272.result_buffer[1] = i8272.current_cylinder;
     i8272.result_count = 2;
     i8272.result_index = 0;
 
     debug_log("FDC: SENSE_INTERRUPT - ST0=0x%02X, PCN=%d (BIOS will clear flag 0x43E)\n", st0, i8272.current_cylinder);
 
-    i8272.interrupt_pending = 0;
     i8272.command_index = 0;
     i8272.msr_rqm = 1;
     i8272.msr_dio = 1;
@@ -194,7 +191,6 @@ __force_inline static void i8272_cmd_seek(void) {
     debug_log("FDC: SEEK - Drive=%d, target cylinder=%d, IRQ6 sent\n",
            i8272.current_drive, i8272.current_cylinder);
 
-    i8272.interrupt_pending = 1;
     i8272_irq();
     i8272.command_index = 0;
     i8272.msr_busy = 0;

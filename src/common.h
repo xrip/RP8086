@@ -120,7 +120,6 @@ typedef struct {
     uint8_t result_index;        // Индекс чтения из result_buffer
     uint8_t result_count;        // Количество байт результата
     uint8_t current_cylinder;    // Текущий цилиндр (для SEEK)
-    uint8_t interrupt_pending;   // IRQ6 ожидает обработки
 
     // Состояние MSR (Main Status Register)
     uint8_t msr_rqm : 1;         // Request for Master (1=ready for data transfer)
@@ -134,5 +133,4 @@ typedef struct {
 
     // Дополнительное состояние для эмуляции
     uint8_t reset_pending;       // Флаг ожидания обработки после сброса
-    uint8_t sense_type;          // Тип SENSE команды (INTERRUPT vs STATUS)
 } i8272_s;
