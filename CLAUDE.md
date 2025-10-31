@@ -558,3 +558,5 @@ intel_8259a_specifications:
 - 8253 system timer configuration (18.2 Hz, port 0x40-0x43)
 - 8259A initialization sequence (ICW1 → ICW2 → ICW3 → ICW4)
 - 8086 bus timing requirements (ALE, RD/WR, READY signals)
+- перед коммитом изменений спросить разрешение
+- Никогда не коммить изменения без моего согласия

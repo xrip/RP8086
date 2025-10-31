@@ -8,6 +8,10 @@
 #include "pico/multicore.h"
 #include "hardware/i8259.h"
 #include "hardware/i8253.h"
+#include "hardware/i8237.h"
+#include "hardware/i8272.h"
+
+#include "../rom/fdd.h"
 
 // ============================================================================
 // Global Memory Arrays
@@ -16,12 +20,27 @@ uint8_t RAM[RAM_SIZE] __attribute__((aligned(4)));
 uint8_t VIDEORAM[4096] __attribute__((aligned(4)));
 
 i8259_s i8259 __attribute__((aligned(4))) = {
-    .interrupt_mask_register = 0xFF, // Все IRQ замаскированы по умолчанию
+    .interrupt_mask_register = 0xBF, // Все IRQ замаскированы, кроме IRQ6 (бит 6 = 0)
     .interrupt_vector_offset = 0x08, // Стандартный offset для IBM PC
 };
+i8253_s i8253 __attribute__((aligned(4))) = { 0 };
+
+dma_channel_s dma_channels[DMA_CHANNELS] = {
+    {.masked = 1},
+    {.masked = 1},
+    {.masked = 1},
+    {.masked = 1},
+};
+
+i8272_s i8272 __attribute__((aligned(4))) = { 0 };
+
+// Floppy geometry globals (используются в i8272.h)
+uint16_t FDD_CYLINDERS = 40;
+uint16_t FDD_HEADS = 2;
+uint16_t FDD_SECTORS_PER_TRACK = 8;
+
 uint32_t timer_interval = 54925;
 bool speakerenabled = false;
-i8253_s i8253 __attribute__((aligned(4))) = { 0 };
 
 // ============================================================================
 // IRQ System - Intel 8259A Compatible Controller
@@ -68,7 +87,7 @@ static uint8_t ascii_to_scancode(const int ascii) {
     switch (ascii) {
         case '!': return 0x41; // "
         case '@': return 0x3f; // "
-        case '#': return 0x3d; // "
+        case '#': return 0x3c; // "
         case '$': return 0x3b; // "
         case '%': return 0x3c; // "
         case '^': return 0x58; // "
@@ -124,6 +143,8 @@ void pic_init(void) {
 [[noreturn]] void bus_handler_core(void) {
     start_cpu_clock(); // Start i8086 clock generator
     pic_init(); // Initialize interrupt controller and start Core1 IRQ generator
+    fdd_detect_geometry(sizeof(FDD360)); // Auto-detect floppy geometry from FDD360[] size
+    i8272_reset(); // Initialize floppy disk controller
     cpu_bus_init(); // Initialize bus BEFORE releasing i8086 from reset
     reset_cpu(); // Now i8086 can safely start
 
@@ -162,7 +183,7 @@ void pic_init(void) {
 
     absolute_time_t next_frame = get_absolute_time();
     next_frame = delayed_by_us(next_frame, 16666);
-
+ 
     bool video_enabled = true;
 
     while (true) {
@@ -193,19 +214,39 @@ void pic_init(void) {
             printf("===================== RESET");
             reset_usb_boot(0, 0);
         } else if (c == 'M') {
-            printf("\nMemory dump (first 400 bytes):\n");
-            for (int i = 0; i < 0x400; i += 16) {
-                printf("%04X: ", i);
+            printf("\nEnter base address (hex): ");
+            uint32_t base = 0;
+            while (1) {
+                int k = getchar_timeout_us(0);
+                if (k == PICO_ERROR_TIMEOUT) continue;
+
+                if (k == '\r' || k == '\n') break;
+
+                if ((k >= '0' && k <= '9') || (k >= 'a' && k <= 'f') || (k >= 'A' && k <= 'F')) {
+                    k = (k >= 'a') ? k - 'a' + 10 : (k >= 'A') ? k - 'A' + 10 : k - '0';
+                    base = (base << 4) | k;
+                    printf("%X", k);
+                }
+            }
+            printf("\nMemory dump from %04X:\n", base);
+
+            for (int i = 0; i < 0x200 && i + base < RAM_SIZE; i += 16) {
+                printf("%04X: ", base + i);
                 for (int j = 0; j < 16; j++) {
-                    uint8_t value = RAM[i + j];
+                    uint8_t value = RAM[base + i + j];
                     printf("%02X ", value);
                 }
                 printf(" | ");
                 for (int j = 0; j < 16; j++) {
-                    uint8_t value = RAM[i + j];
-                    printf("%c", value);
+                    uint8_t value = RAM[base + i + j];
+                    printf("%c", (value >= 32 && value < 127) ? value : '.');
                 }
                 printf("\n");
+
+                // Check for abort keys
+                int k = getchar_timeout_us(0);
+                if (k != PICO_ERROR_TIMEOUT && (k == 'M' || k == 'R' || k == 'B' || k == 'V'))
+                    break;
             }
         } else if (c == 'V') {
             printf("\nVideo Memory dump \n");

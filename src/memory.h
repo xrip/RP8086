@@ -2,6 +2,8 @@
 #include "common.h"
 #include "rom/bios.h"
 #include "rom/basic.h"
+#include "rom/floppy.h"
+#include <stdio.h>
 
 // ============================================================================
 // External Memory Arrays
@@ -18,16 +20,16 @@ __force_inline static uint16_t memory_read(const uint32_t address) {
         return *(uint16_t *)&RAM[address];
     }
 
-    // Video RAM: 0xB0000-0xB7FFF (4KB, MDA text mode)
-    // Оптимизация: одна проверка через вычитание вместо двух сравнений
-    if ((address - 0xB0000) < 0x8000) {
-        return *(uint16_t *)&VIDEORAM[address & 4094];
+    // Video RAM: MDA 0xB0000-0xB0FFF (4KB) or CGA 0xB8000-0xB8FFF (4KB)
+    // Обе области отображаются в один массив VIDEORAM[4KB]
+    if (((address - 0xB0000) < 0x1000) || ((address - 0xB8000) < 0x1000)) {
+        return *(uint16_t *)&VIDEORAM[address & 0xFFF];
     }
 
     // BASIC ROM: 0xF6000-0xFDFFF
-    if ((address - 0xF6000) < (BIOS_ROM_BASE - 0xF6000)) {
-        return *(uint16_t *)&BASIC[address - 0xF6000];
-    }
+    // if ((address - 0xD0000) < (BIOS_ROM_BASE - 0xD0000)) {
+        // return *(uint16_t *)&FLOPPY[address - 0xD0000];
+    // }
 
     // BIOS ROM: 0xFE000-0xFFFFF (8KB)
     if (address >= BIOS_ROM_BASE) {
@@ -48,10 +50,11 @@ __force_inline static void memory_write(const uint32_t address, const uint16_t d
         return;
     }
 
-    // Video RAM: 0xB0000-0xB7FFF (4KB, MDA text mode)
-    // Оптимизация: одна проверка вместо двух для видеопамяти
-    if ((address - 0xB0000) < 0x8000) {
+    // Video RAM: MDA 0xB0000-0xB0FFF (4KB) or CGA 0xB8000-0xB8FFF (4KB)
+    // Обе области отображаются в один массив VIDEORAM[4KB]
+    if (((address - 0xB0000) < 0x1000) || ((address - 0xB8000) < 0x1000)) {
         write_to(VIDEORAM, address & 0xFFF, data, bhe);
+        return;
     }
 
     // ROM areas are read-only, ignore writes

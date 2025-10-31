@@ -14,31 +14,69 @@ extern uint32_t timer_interval;
 __force_inline static uint8_t i8253_read(const uint16_t port_number) {
     const uint8_t channel = port_number & 3;
     if (channel <= 2) {
-        // channel data
+        // Если есть защелкнутое значение (LATCHCOUNT), читаем его
+        if (i8253.channel_latch_mode[channel]) {
+            const uint8_t latch_mode = i8253.channel_latch_mode[channel];
+            const uint8_t byte_toggle = i8253.channel_byte_toggle[channel];
+
+            // Определяем какой байт читать
+            const bool read_low_byte = (latch_mode == PIT_MODE_LOBYTE) ||
+                                       (latch_mode == PIT_MODE_TOGGLE && byte_toggle == 0);
+
+            uint8_t result;
+            if (read_low_byte) {
+                result = (uint8_t)i8253.channel_latched_value[channel];
+            } else {
+                result = (uint8_t)(i8253.channel_latched_value[channel] >> 8);
+            }
+
+            // Обновляем toggle только для TOGGLE режима
+            if (latch_mode == PIT_MODE_TOGGLE) {
+                i8253.channel_byte_toggle[channel] = ~byte_toggle & 1;
+                // Если прочитали оба байта, сбрасываем latch
+                if (byte_toggle == 1) {
+                    i8253.channel_latch_mode[channel] = 0;
+                }
+            } else {
+                // Для LOBYTE/HIBYTE сбрасываем latch после одного чтения
+                i8253.channel_latch_mode[channel] = 0;
+            }
+
+            return result;
+        }
+
+        // Обычное чтение (без latch) - читаем текущий счетчик
         const uint8_t access_mode = i8253.channel_access_mode[channel];
         const uint8_t byte_toggle = i8253.channel_byte_toggle[channel];
 
-        // Determine which byte to read (low or high)
-        const uint8_t current_byte_selector =
-        access_mode == 0 || access_mode == PIT_MODE_LOBYTE ||
-        (access_mode == PIT_MODE_TOGGLE && byte_toggle == 0) ? 0             : 1;
+        const bool read_low_byte = (access_mode == PIT_MODE_LOBYTE) ||
+                                   (access_mode == PIT_MODE_TOGGLE && byte_toggle == 0);
 
-        // Update toggle state for relevant modes
-        if (access_mode == 0 || access_mode == PIT_MODE_TOGGLE) {
+        // Декрементируем счетчик (эмуляция тиков таймера)
+        // В реальном 8253 счетчик декрементируется на каждом тике 1.193 MHz
+        // Для упрощения декрементируем на небольшое значение при каждом чтении
+        if (i8253.channel_active[channel]) {
+            if (i8253.channel_current_count[channel] < 50) {
+                // Reload counter
+                i8253.channel_current_count[channel] = i8253.channel_reload_value[channel];
+            } else {
+                i8253.channel_current_count[channel] -= 50;
+            }
+        }
+
+        uint8_t result;
+        if (read_low_byte) {
+            result = (uint8_t)i8253.channel_current_count[channel];
+        } else {
+            result = (uint8_t)(i8253.channel_current_count[channel] >> 8);
+        }
+
+        // Обновляем toggle для TOGGLE режима
+        if (access_mode == PIT_MODE_TOGGLE) {
             i8253.channel_byte_toggle[channel] = ~byte_toggle & 1;
         }
 
-        if (current_byte_selector == 0) {
-            // Low byte - update counter if needed
-            if (i8253.channel_current_count[channel] < 10) {
-                i8253.channel_current_count[channel] = i8253.channel_reload_value[channel];
-            }
-            i8253.channel_current_count[channel] -= 10;
-            return (uint8_t) i8253.channel_current_count[channel];
-        } else {
-            // High byte
-            return (uint8_t) (i8253.channel_current_count[channel] >> 8);
-        }
+        return result;
     }
 
     return 0xFF;
@@ -78,6 +116,13 @@ __force_inline static void i8253_write(const uint16_t port_number, const uint8_t
 
         if (access_mode == PIT_MODE_TOGGLE) {
             i8253.channel_byte_toggle[channel] = ~byte_toggle & 1;
+            // Инициализируем счетчик только после записи обоих байт
+            if (byte_toggle == 1) {
+                i8253.channel_current_count[channel] = i8253.channel_reload_value[channel];
+            }
+        } else {
+            // Для LOBYTE/HIBYTE инициализируем сразу
+            i8253.channel_current_count[channel] = i8253.channel_reload_value[channel];
         }
 
         // Calculate frequency
@@ -88,14 +133,25 @@ __force_inline static void i8253_write(const uint16_t port_number, const uint8_t
             timer_interval = 1000000 / i8253.channel_frequency[channel];
         }
     } else {
-        // portnum == 3: mode/command
+        // portnum == 3: mode/command (control word)
         const uint8_t channel = data >> 6;
         const uint8_t access_mode = (data >> 4) & 3;
 
-        i8253.channel_access_mode[channel] = access_mode;
-
-        if (access_mode == PIT_MODE_TOGGLE) {
+        // LATCHCOUNT команда (access_mode == 0)
+        if (access_mode == PIT_MODE_LATCHCOUNT) {
+            // Защелкиваем текущий счетчик
+            i8253.channel_latched_value[channel] = i8253.channel_current_count[channel];
+            // Используем текущий access_mode для определения latch_mode
+            i8253.channel_latch_mode[channel] = i8253.channel_access_mode[channel];
+            // Сбрасываем toggle для корректного чтения
             i8253.channel_byte_toggle[channel] = 0;
+        } else {
+            // Установка нового access mode
+            i8253.channel_access_mode[channel] = access_mode;
+
+            if (access_mode == PIT_MODE_TOGGLE) {
+                i8253.channel_byte_toggle[channel] = 0;
+            }
         }
     }
 }
