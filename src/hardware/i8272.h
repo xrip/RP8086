@@ -139,7 +139,7 @@ __force_inline static void i8272_writeport(const uint16_t port_number, const uin
                     result[0] = response[0];
                     result_index = 0;
                 }
-                
+
                 if (command_length)
                     command_index = 1;
             } else
@@ -201,8 +201,7 @@ __force_inline static void i8272_writeport(const uint16_t port_number, const uin
                         // При ошибке генерируем IRQ сразу
                         i8272_irq();
                     }
-                }
-                else if (cmd == FDC_CMD_SENSE_INTERRUPT_STATUS) // sense interrupt status
+                } else if (cmd == FDC_CMD_SENSE_INTERRUPT_STATUS) // sense interrupt status
                 {
                     if (check_drives_mask) {
                         const int drive = __builtin_ctz(check_drives_mask);
@@ -214,8 +213,7 @@ __force_inline static void i8272_writeport(const uint16_t port_number, const uin
 
                     result[1] = presentCylinder[response[0] & 3];
                     result_count = 2;
-                }
-                else if (cmd == FDC_CMD_SEEK) // seek
+                } else if (cmd == FDC_CMD_SEEK) // seek
                 {
                     const int drive = command[1] & 3;
                     // int head = (command[1] >> 2) & 1;
@@ -232,8 +230,7 @@ __force_inline static void i8272_writeport(const uint16_t port_number, const uin
                     }
 
                     i8272_irq();
-                }
-                else if (cmd == FDC_CMD_WRITE_DATA) // write
+                } else if (cmd == FDC_CMD_WRITE_DATA) // write
                 {
                     [[maybe_unused]] bool multiTrack = command[0] & (1 << 7);
                     [[maybe_unused]] bool mfm = command[0] & (1 << 6);
@@ -282,15 +279,13 @@ __force_inline static void i8272_writeport(const uint16_t port_number, const uin
                     } else {
                         i8272_irq();
                     }
-                }
-                else if (cmd == FDC_CMD_SPECIFY) // specify
+                } else if (cmd == FDC_CMD_SPECIFY) // specify
                 {
                     // auto stepRateTime = command[1] >> 4;
                     // auto headUnloadTime = command[1] & 0xF;
                     // auto headLoadTime = command[2] >> 1;
                     // bool nonDMA = command[2] & 1;
-                }
-                else if (cmd == FDC_CMD_SENSE_DRIVE_STATUS) // sense drive status
+                } else if (cmd == FDC_CMD_SENSE_DRIVE_STATUS) // sense drive status
                 {
                     const int drive = command[1] & 3;
                     // int head = (command[1] >> 2) & 1;
@@ -299,8 +294,7 @@ __force_inline static void i8272_writeport(const uint16_t port_number, const uin
 
                     result_count = 1;
                     result[0] = (isTrack_0 ? 1 << 4 : 0) | 1 << 5 /*ready*/;
-                }
-                else if (cmd == FDC_CMD_RECALIBRATE) // recalibrate
+                } else if (cmd == FDC_CMD_RECALIBRATE) // recalibrate
                 {
                     const int drive = command[1] & 3;
 
@@ -312,9 +306,8 @@ __force_inline static void i8272_writeport(const uint16_t port_number, const uin
                         response[0] |= 1 << 5; // set seek end
                     }
 
-                        i8272_irq();
-                }
-                else if (cmd == FDC_CMD_READ_ID) // read id
+                    i8272_irq();
+                } else if (cmd == FDC_CMD_READ_ID) // read id
                 {
                     [[maybe_unused]] bool mfm = command[0] & (1 << 6);
 
@@ -334,7 +327,7 @@ __force_inline static void i8272_writeport(const uint16_t port_number, const uin
                     result[5] = 1;
                     result[6] = 2; // ?
 
-                        i8272_irq();
+                    i8272_irq();
                 }
 
 

@@ -54,7 +54,7 @@ __force_inline static uint8_t uart_read(const uint32_t port) {
             }
             // DLAB=0: возвращаем принятый байт
             const uint8_t data = uart.rbr;
-            uart.data_ready = false;  // Сбросить флаг после чтения
+            uart.data_ready = false; // Сбросить флаг после чтения
             return data;
         }
 
@@ -90,9 +90,9 @@ __force_inline static uint8_t uart_read(const uint32_t port) {
             // Bit 0: Data Ready (есть данные для чтения)
             // Bit 5: THR Empty (можно писать)
             // Bit 6: Transmitter Empty (полностью свободен)
-            uint8_t lsr = LSR_THR_EMPTY | LSR_TRANSMITTER_EMPTY;  // Всегда готов к передаче
+            uint8_t lsr = LSR_THR_EMPTY | LSR_TRANSMITTER_EMPTY; // Всегда готов к передаче
             if (uart.data_ready) {
-                lsr |= LSR_DATA_READY;  // Есть данные для чтения
+                lsr |= LSR_DATA_READY; // Есть данные для чтения
             }
             return lsr;
         }
@@ -100,7 +100,7 @@ __force_inline static uint8_t uart_read(const uint32_t port) {
         case 0x3FE: {
             // MSR - Modem Status Register
             // Эмулируем "все сигналы активны" для простоты
-            return 0xB0;  // CTS=1, DSR=1, DCD=1
+            return 0xB0; // CTS=1, DSR=1, DCD=1
         }
 
         case 0x3FF: {
@@ -127,7 +127,7 @@ __force_inline static void uart_write(const uint32_t port, const uint8_t data) {
             }
             // DLAB=0: отправляем байт в USB терминал
             uart.thr = data;
-            putchar_raw(data);  // Немедленный вывод в USB
+            putchar_raw(data); // Немедленный вывод в USB
             return;
         }
 

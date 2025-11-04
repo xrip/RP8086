@@ -6,7 +6,7 @@
 #include "hardware/i8253.h"
 #include "hardware/i8259.h"
 #include "hardware/i8272.h"
-#include "hardware/i16550.h"
+#include "hardware/uart16550.h"
 // ============================================================================
 // External Port Arrays and Variables
 // ============================================================================
