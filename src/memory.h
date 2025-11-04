@@ -10,6 +10,20 @@
 extern uint8_t RAM[];        // Main RAM (defined in main.c)
 extern uint8_t VIDEORAM[];   // Video RAM (defined in main.c)
 
+__always_inline static void write_to(uint8_t *destination, const uint32_t address,
+                                       const uint16_t data, const bool bhe) {
+    const uint32_t A0 = address & 1;
+
+    // Fast path: aligned 16-bit write (90% случаев)
+    if (likely(!(bhe | A0))) {
+        *(uint16_t *)&destination[address] = data;
+        return;
+    }
+
+    // Slow path: byte write
+    const uint8_t byte_val = A0 ? data >> 8 : data & 0xFF;
+    destination[address] = byte_val;
+}
 // ============================================================================
 // Memory Read (16-bit)
 // ============================================================================
