@@ -104,7 +104,7 @@ __force_inline static void i8253_write(const uint16_t port_number, const uint8_t
 
         if (reload_value == 0) {
             i8253.channel_effective_count[channel] = 65536;
-            speakerenabled = 0;
+            // speakerenabled = 0;
         } else {
             i8253.channel_effective_count[channel] = reload_value;
 

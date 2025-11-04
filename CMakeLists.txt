@@ -28,6 +28,7 @@ add_executable(${PROJECT_NAME}
         src/main.c
         src/cpu.c
         src/cpu_bus.c
+        src/common.c
 )
 
 pico_define_boot_stage2(slower_boot ${PICO_DEFAULT_BOOT_STAGE2_FILE})

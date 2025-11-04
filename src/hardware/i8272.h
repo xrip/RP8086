@@ -10,36 +10,22 @@
 #else
 #define debug_log(...)
 #endif
+
 extern uint8_t FDD360[];
-
-// Consolidated controller state for tighter locality; align to cache line for fast access
-typedef struct {
-    uint8_t DOR;
-    uint8_t response[4];
-    uint8_t command[9];
-    uint8_t result[7];
-    uint8_t presentCylinder[4];
-    uint8_t command_length;
-    uint8_t result_count;
-    uint8_t command_index;
-    uint8_t result_index;
-    uint8_t check_drives_mask;
-} I8272State;
-
+extern i8272_s i8272;
 // Single instance of the controller state (zero-initialized)
-static I8272State i8272_state __attribute__((aligned(4))) = {};
 
 // Keep existing code unchanged by mapping old names to struct fields
-#define DOR                (i8272_state.DOR)
-#define response           (i8272_state.response)
-#define command            (i8272_state.command)
-#define result             (i8272_state.result)
-#define presentCylinder    (i8272_state.presentCylinder)
-#define command_length     (i8272_state.command_length)
-#define result_count       (i8272_state.result_count)
-#define command_index      (i8272_state.command_index)
-#define result_index       (i8272_state.result_index)
-#define check_drives_mask  (i8272_state.check_drives_mask)
+#define DOR                (i8272.DOR)
+#define response           (i8272.response)
+#define command            (i8272.command)
+#define result             (i8272.result)
+#define presentCylinder    (i8272.presentCylinder)
+#define command_length     (i8272.command_length)
+#define result_count       (i8272.result_count)
+#define command_index      (i8272.command_index)
+#define result_index       (i8272.result_index)
+#define check_drives_mask  (i8272.check_drives_mask)
 
 #define FDD_CYLINDERS 40
 #define FDD_HEADS 2
@@ -311,8 +297,8 @@ __force_inline static void i8272_writeport(const uint16_t port_number, const uin
                 {
                     [[maybe_unused]] bool mfm = command[0] & (1 << 6);
 
-                    int drive = command[1] & 3;
-                    int head = (command[1] >> 2) & 1;
+                    const int drive = command[1] & 3;
+                    const int head = (command[1] >> 2) & 1;
 
                     assert(mfm);
 

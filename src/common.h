@@ -69,7 +69,7 @@ __always_inline static void write_to(uint8_t *destination, const uint32_t addres
     }
 
     // Slow path: byte write
-    const uint8_t byte_val = (A0) ? (data >> 8) : (data & 0xFF);
+    const uint8_t byte_val = A0 ? data >> 8 : data & 0xFF;
     destination[address] = byte_val;
 }
 
@@ -88,7 +88,8 @@ __always_inline static void write_to1(uint8_t *destination, const uint32_t addre
         destination[address] = (uint8_t)(data >> 8);
     }
 }
-
+extern uint8_t RAM[RAM_SIZE] __attribute__((aligned(4)));
+extern uint8_t VIDEORAM[4096] __attribute__((aligned(4)));
 
 typedef struct {
     uint8_t interrupt_mask_register; //mask register
@@ -134,21 +135,6 @@ typedef struct {
 } dma_channel_s;
 
 typedef struct {
-    uint8_t command_buffer[16];  // Буфер команды
-    uint8_t command_index;       // Индекс записи в command_buffer
-    uint8_t result_buffer[7];    // Буфер результата
-    uint8_t result_index;        // Индекс чтения из result_buffer
-    uint8_t result_count;        // Количество байт результата
-    uint8_t current_cylinder;    // Текущий цилиндр (для SEEK)
-
-    // Состояние MSR (Main Status Register)
-    uint8_t current_drive;       // Текущий выбранный дисковод (0=A, 1=B)
-
-    // Дополнительное состояние для эмуляции
-    uint8_t reset_pending;       // Флаг ожидания обработки после сброса
-} i8272_s;
-
-typedef struct {
     uint8_t rbr;           // Receive Buffer Register (один байт входящих данных)
     uint8_t thr;           // Transmit Holding Register (для отправки)
     uint8_t ier;           // Interrupt Enable Register
@@ -160,3 +146,17 @@ typedef struct {
     uint16_t divisor;      // Divisor latch (для baud rate, игнорируем)
     bool data_ready;       // Флаг: есть данные в RBR для чтения
 } uart_16550_s;
+
+// Consolidated controller state for tighter locality; align to cache line for fast access
+typedef struct {
+    uint8_t DOR;
+    uint8_t response[4];
+    uint8_t command[9];
+    uint8_t result[7];
+    uint8_t presentCylinder[4];
+    uint8_t command_length;
+    uint8_t result_count;
+    uint8_t command_index;
+    uint8_t result_index;
+    uint8_t check_drives_mask;
+} i8272_s;

@@ -8,56 +8,17 @@
 #include "pico/multicore.h"
 #include "hardware/i8259.h"
 #include "hardware/i8253.h"
-#include "hardware/i8237.h"
-#include "hardware/i8272.h"
+#include "hardware/uart16550.h"
 
-#include "../rom/fdd.h"
-
-// ============================================================================
-// Global Memory Arrays
-// ============================================================================
-uint8_t RAM[RAM_SIZE] __attribute__((aligned(4)));
-uint8_t VIDEORAM[4096] __attribute__((aligned(4)));
-
-i8259_s i8259 __attribute__((aligned(4))) = {
-    .interrupt_mask_register = 0xFF, // Все IRQ замаскированы
-    .interrupt_vector_offset = 0x08, // Стандартный offset для IBM PC
-};
-i8253_s i8253 __attribute__((aligned(4))) = { 0 };
-
-dma_channel_s dma_channels[DMA_CHANNELS] ;
 
 uint32_t timer_interval = 54925;
-bool speakerenabled = false;
-
-// ============================================================================
-// UART (COM1) - 16550 Emulation
-// ============================================================================
-uart_16550_s uart __attribute__((aligned(4))) = {
-    .data_ready = false,
-    .lcr = 0x03,  // 8 data bits, 1 stop bit, no parity (стандарт)
-    .mcr = 0x00,
-    .msr = 0xB0,  // CTS, DSR, DCD активны
-};
-
-// ============================================================================
-// CTTY Mode - переключение между keyboard и COM1 режимами
-// ============================================================================
 bool ctty_mode = false;  // false = keyboard mode, true = CTTY mode
-
-// ============================================================================
-// IRQ System - Intel 8259A Compatible Controller
-// ============================================================================
-
-// ============================================================================
-// Keyboard - Single Scancode (no buffer needed for human input)
-// ============================================================================
 uint8_t current_scancode = 0; // 0 = нет данных
 
 // ============================================================================
 // ASCII to Scancode (IBM PC/XT Set 1) - Simplified
 // ============================================================================
-static uint8_t ascii_to_scancode(const int ascii) {
+__force_inline uint8_t ascii_to_scancode(const int ascii) {
     // Letters
     if (ascii >= 'a' && ascii <= 'z') {
         // QWERTY layout mapping
@@ -126,14 +87,14 @@ static uint8_t ascii_to_scancode(const int ascii) {
 // ============================================================================
 // Set scancode and trigger IRQ1 (keyboard interrupt)
 // ============================================================================
-static void push_scancode(const uint8_t scancode) {
+__force_inline void push_scancode(const uint8_t scancode) {
     if (scancode == 0x00) return; // Ignore unknown keys
 
     current_scancode = scancode;
     i8259_interrupt(1); // IRQ1 - Keyboard interrupt через i8259
 }
 
-void pic_init(void) {
+static void pic_init(void) {
     // Настройка INTR как выход
     gpio_init(INTR_PIN);
     gpio_set_dir(INTR_PIN, GPIO_OUT);
