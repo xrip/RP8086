@@ -6,10 +6,11 @@
 #include "hardware/i8253.h"
 #include "hardware/i8259.h"
 #include "hardware/i8272.h"
+#include "hardware/i16550.h"
 // ============================================================================
 // External Port Arrays and Variables
 // ============================================================================
-extern volatile uint8_t current_scancode; // Keyboard scancode (defined in main.c)
+extern uint8_t current_scancode; // Keyboard scancode (defined in main.c)
 
 // ============================================================================
 // Port State Variables
@@ -25,16 +26,14 @@ static bool keyboard_has_response = false;
 
 __force_inline static uint8_t port_read8(const uint32_t address) {
     switch (address) {
-        case 0 ... 0x0F: {
-            return i8237_readport(address);
-        }
-        case 0x3F0 ... 0x3F7: {
-            return i8272_readport(address);
-        }
         case 0x3BA: {
             // MDA status port
             return port3DA ^= 9;
         }
+        case 0 ... 0x0F: {
+            return i8237_readport(address);
+        }
+
         case 0x20 ... 0x21: {
             return i8259_read(address);
         }
@@ -85,7 +84,13 @@ __force_inline static uint8_t port_read8(const uint32_t address) {
         case 0x87: {
             return i8237_readpage(address);
         }
-
+        case 0x3F4: case 0x3F5: {
+            return i8272_readport(address);
+        }
+        case 0x3F8 ... 0x3FF: {
+            // COM1 (Intel 16550 UART)
+            return uart_read(address);
+        }
         default:
             return 0xFF;
     }
@@ -121,9 +126,6 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
     switch (address) {
         case 0 ... 0x0F: {
             return i8237_writeport(address, data);
-        }
-        case 0x3F0 ... 0x3F7: {
-            return i8272_writeport(address, data);
         }
         case 0x20 ... 0x21: {
             return i8259_write(address, data);
@@ -180,6 +182,13 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
         case 0x83:
         case 0x87: {
             return i8237_writepage(address, data);
+        }
+        case 0x3F2: case 0x3F5: {
+            return i8272_writeport(address, data);
+        }
+        case 0x3F8 ... 0x3FF: {
+            // COM1 (Intel 16550 UART)
+            return uart_write(address, data);
         }
     }
 }

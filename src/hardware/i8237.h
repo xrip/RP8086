@@ -22,6 +22,9 @@
 #include "common.h"
 extern dma_channel_s dma_channels[DMA_CHANNELS];
 
+// Forward declaration для i8259_interrupt (определена в i8259.h)
+__force_inline static void i8259_interrupt(const uint8_t irq);
+
 static bool byte_pointer_flipflop, memory_to_memory_enabled;
 
 
@@ -103,7 +106,7 @@ __force_inline static void i8237_writeport(const uint16_t port_number, const uin
                 dma_channels[channel].count = dma_channels[channel].reload_count;
                 if (channel == 2) {
                     debug_log("[%llu] DMA UNMASK: CH2 address=0x%04X, count=0x%04X (reload→current)\n",
-                           to_us_since_boot(get_absolute_time()), dma_channels[ch].address, dma_channels[ch].count);
+                           to_us_since_boot(get_absolute_time()), dma_channels[channel].address, dma_channels[channel].count);
                 }
             }
 
@@ -142,7 +145,7 @@ __force_inline static void i8237_writeport(const uint16_t port_number, const uin
                     dma_channels[channel].count = dma_channels[channel].reload_count;
                     if (channel == 2) {
                         debug_log("DMA UNMASK (0x0F): CH2 address=0x%04X, count=0x%04X (reload→current)\n",
-                               dma_channels[i].address, dma_channels[i].count);
+                               dma_channels[channel].address, dma_channels[channel].count);
                     }
                 }
 
@@ -249,34 +252,30 @@ __force_inline static uint8_t i8237_readpage(const uint16_t port_number) {
     return (uint8_t) (dma_channels[channel].page >> 16);
 }
 
-__force_inline void update_count(const uint8_t channel, const uint16_t count) {
+__force_inline void update_count(dma_channel_s *channel, const uint16_t count) {
     // Сохраняем старое значение для проверки underflow (terminal count)
-    const uint16_t old_count = dma_channels[channel].count;
+    const uint16_t old_count = channel->count;
 
     // Обновляем адрес (16-битная арифметика с оборачиванием!) и count
-    dma_channels[channel].address = (dma_channels[channel].address + dma_channels[channel].address_increase * count) & 0xFFFF;
-    dma_channels[channel].count -= count;
+    channel->address = (channel->address + channel->address_increase * count) & 0xFFFF;
+    channel->count -= count;
 
     // Terminal count: произошел underflow (count обернулся через 0x0000 → 0xFFFF)
     // Проверка: если новое значение больше старого в беззнаковой арифметике
-    if (dma_channels[channel].count > old_count) {
+    if (channel->count > old_count) {
         // КРИТИЧНО: Устанавливаем флаг Terminal Count для Status Register (bit 4-7)
-        dma_channels[channel].finished = 1;
+        channel->finished = 1;
 
-        if (dma_channels[channel].auto_init) {
+        if (channel->auto_init) {
             // Auto-init: перезагрузка из reload registers
-            dma_channels[channel].count = dma_channels[channel].reload_count;
-            dma_channels[channel].address = dma_channels[channel].reload_address;
-            if (channel == 2) {
+            channel->count = channel->reload_count;
+            channel->address = channel->reload_address;
                 debug_log("[%llu] DMA AUTO-INIT: CH2 address=0x%04X, count=0x%04X (reload→current), TC flag set\n",
-                       to_us_since_boot(get_absolute_time()), dma_channels[channel].address, dma_channels[channel].count);
-            }
+                       to_us_since_boot(get_absolute_time()), channel->address, channel->count);
         } else {
             // Terminal count без auto-init: маскируем канал
-            dma_channels[channel].masked = 1;
-            if (channel == 2) {
+            channel->masked = 1;
                 debug_log("[%llu] DMA TERMINAL COUNT: CH2 masked, TC flag set\n", to_us_since_boot(get_absolute_time()));
-            }
         }
     }
 }
@@ -289,40 +288,48 @@ __force_inline static uint8_t i8237_read(const uint8_t channel, const uint8_t * 
     debug_log("DMA read from 0x%08X\n", memory_address);
     //const uint8_t read_data = memory_read(memory_address);
     constexpr uint8_t read_data = 0;
-    update_count(channel, 1);
+    // update_count(channel, 1);
 
     return read_data;
 }
 
-__force_inline static uint32_t i8237_write(const uint8_t channel_index, const uint8_t *src, const size_t size) {
+// ============================================================================
+// DMA Transfer (синхронная передача для корректности)
+// ============================================================================
+__force_inline static void dma_start_transfer(const uint8_t channel_index, const uint8_t *src, const uint8_t irq) {
     extern uint8_t RAM[];
     dma_channel_s *channel = &dma_channels[channel_index];
-    if (channel->masked) return 0;
 
-    // Вычисляем физический адрес
-    const uint32_t address = channel->page + channel->address;
-    const uint32_t remaining = (uint32_t)channel->count + 1; // до Terminal Count
-    uint32_t actual_size = (size > remaining) ? remaining : size;
-
-    // Проверка выхода за пределы RAM
-    if (address >= RAM_SIZE) {
-        debug_log("DMA: channel %d start 0x%05X outside RAM (ignored)\n", channel, phys);
-        channel->finished = 1;
-        channel->masked = 1;
-        return 0;
+    if (unlikely(channel->masked)) {
+        return;
     }
 
-    const uint32_t max_size = RAM_SIZE - address;
-    if (actual_size > max_size) actual_size = max_size;
+    // Вычисляем физический адрес назначения
+    const uint32_t dest_addr = channel->page + channel->address;
+    const size_t size = (uint32_t)channel->count + 1;
+/*
+    // Проверка границ RAM
+    if (unlikely(dest_addr >= RAM_SIZE)) {
+        channel->finished = 1;
+        channel->masked = 1;
+        return;
+    }
+*/
+    // Определяем размер передачи
+    // uint32_t transfer_size = remaining;
+    // const uint32_t max_size = RAM_SIZE - dest_addr;
+    // if (transfer_size > max_size) transfer_size = max_size;
 
-    memcpy(&RAM[address], src, actual_size);
+    // КРИТИЧНО: выполняем передачу СИНХРОННО (без race condition)
+    memcpy(&RAM[dest_addr], src, size);
 
-    update_count(channel_index, actual_size);
+    // Обновляем счётчики
+    update_count(channel, size);
 
-    debug_log("DMA: CH%d wrote %u bytes to 0x%05X, new_count=%04X, TC=%d\n",
-        channel, actual, phys, ch->count, ch->finished);
-
-    return actual_size;
+    // Генерируем IRQ если назначен (после завершения передачи!)
+    if (channel->finished && irq) {
+        i8259_interrupt(irq);
+    }
 }
 
 #if defined(DEBUG_I8237)

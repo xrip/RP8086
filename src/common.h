@@ -23,7 +23,7 @@
 // ============================================================================
 // i8086 Clock Configuration
 // ============================================================================
-#define I8086_CLOCK_SPEED    (3500 * KHZ)  // i8086 clock frequency
+#define I8086_CLOCK_SPEED    (3250 * KHZ)  // i8086 clock frequency
 #define CONFIG_I8086_DUTY_CYCLE 33      // 33% duty cycle (required for i8086)
 
 // ============================================================================
@@ -58,8 +58,23 @@
 // Inline Helper Functions
 // ============================================================================
 
-// Универсальная функция записи с поддержкой BHE (8/16-bit operations)
 __always_inline static void write_to(uint8_t *destination, const uint32_t address,
+                                       const uint16_t data, const bool bhe) {
+    const uint32_t A0 = address & 1;
+
+    // Fast path: aligned 16-bit write (90% случаев)
+    if (likely(!(bhe | A0))) {
+        *(uint16_t *)&destination[address] = data;
+        return;
+    }
+
+    // Slow path: byte write
+    const uint8_t byte_val = (A0) ? (data >> 8) : (data & 0xFF);
+    destination[address] = byte_val;
+}
+
+// Универсальная функция записи с поддержкой BHE (8/16-bit operations)
+__always_inline static void write_to1(uint8_t *destination, const uint32_t address,
                                       const uint16_t data, const bool bhe) {
     const bool A0 = address & 1;
     if (likely(!bhe && !A0)) {
@@ -111,6 +126,11 @@ typedef struct {
     uint8_t dreq;
     uint8_t finished;
     uint8_t transfer_type;
+
+    // Асинхронная передача данных (для polling на Core0)
+    const uint8_t *transfer_source;  // Источник данных (для device→memory)
+    uint8_t irq_number;               // IRQ для генерации при завершении (0 = нет IRQ)
+    bool transfer_active;             // Флаг активной передачи
 } dma_channel_s;
 
 typedef struct {
@@ -122,15 +142,21 @@ typedef struct {
     uint8_t current_cylinder;    // Текущий цилиндр (для SEEK)
 
     // Состояние MSR (Main Status Register)
-    uint8_t msr_rqm : 1;         // Request for Master (1=ready for data transfer)
-    uint8_t msr_dio : 1;         // Data Input/Output (0=CPU->FDC, 1=FDC->CPU)
-    uint8_t msr_ndma : 1;        // Non-DMA mode (0=DMA mode, 1=non-DMA)
-    uint8_t msr_busy : 1;        // FDC is busy
-    uint8_t msr_actd : 1;        // Drive D busy
-    uint8_t msr_actc : 1;        // Drive C busy
-    uint8_t msr_acta : 1;        // Drive A busy
     uint8_t current_drive;       // Текущий выбранный дисковод (0=A, 1=B)
 
     // Дополнительное состояние для эмуляции
     uint8_t reset_pending;       // Флаг ожидания обработки после сброса
 } i8272_s;
+
+typedef struct {
+    uint8_t rbr;           // Receive Buffer Register (один байт входящих данных)
+    uint8_t thr;           // Transmit Holding Register (для отправки)
+    uint8_t ier;           // Interrupt Enable Register
+    uint8_t iir;           // Interrupt Identification Register
+    uint8_t lcr;           // Line Control Register (бит 7 = DLAB)
+    uint8_t mcr;           // Modem Control Register
+    uint8_t lsr;           // Line Status Register
+    uint8_t msr;           // Modem Status Register
+    uint16_t divisor;      // Divisor latch (для baud rate, игнорируем)
+    bool data_ready;       // Флаг: есть данные в RBR для чтения
+} uart_16550_s;

@@ -24,11 +24,6 @@ __force_inline static uint16_t memory_read(const uint32_t address) {
         return *(uint16_t *)&VIDEORAM[address & 0xFFF];
     }
 
-    // BASIC ROM: 0xF6000-0xFDFFF
-    // if ((address - 0xD0000) < (BIOS_ROM_BASE - 0xD0000)) {
-        // return *(uint16_t *)&FLOPPY[address - 0xD0000];
-    // }
-
     // BIOS ROM: 0xFE000-0xFFFFF (8KB)
     if (address >= BIOS_ROM_BASE) {
         return *(uint16_t *)&BIOS[address - BIOS_ROM_BASE];
@@ -48,9 +43,8 @@ __force_inline static void memory_write(const uint32_t address, const uint16_t d
         return;
     }
 
-    // Video RAM: MDA 0xB0000-0xB0FFF (4KB) or CGA 0xB8000-0xB8FFF (4KB)
-    // Обе области отображаются в один массив VIDEORAM[4KB]
-    if (((address - 0xB0000) < 0x1000) || ((address - 0xB8000) < 0x1000)) {
+    // Video RAM: MDA 0xB0000-0xB0FFF (4KB)
+    if ((address - 0xB0000) < 0x1000) {
         write_to(VIDEORAM, address & 0xFFF, data, bhe);
         return;
     }

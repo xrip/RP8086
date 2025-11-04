@@ -20,23 +20,30 @@ uint8_t RAM[RAM_SIZE] __attribute__((aligned(4)));
 uint8_t VIDEORAM[4096] __attribute__((aligned(4)));
 
 i8259_s i8259 __attribute__((aligned(4))) = {
-    .interrupt_mask_register = 0xFF, // Все IRQ замаскированы, кроме IRQ6 (бит 6 = 0)
+    .interrupt_mask_register = 0xFF, // Все IRQ замаскированы
     .interrupt_vector_offset = 0x08, // Стандартный offset для IBM PC
 };
 i8253_s i8253 __attribute__((aligned(4))) = { 0 };
 
-dma_channel_s dma_channels[DMA_CHANNELS] = {
-    {.masked = 1},
-    {.masked = 1},
-    {.masked = 1},
-    {.masked = 1},
-};
-
-i8272_s i8272 __attribute__((aligned(4))) = { 0 };
-
+dma_channel_s dma_channels[DMA_CHANNELS] ;
 
 uint32_t timer_interval = 54925;
 bool speakerenabled = false;
+
+// ============================================================================
+// UART (COM1) - 16550 Emulation
+// ============================================================================
+uart_16550_s uart __attribute__((aligned(4))) = {
+    .data_ready = false,
+    .lcr = 0x03,  // 8 data bits, 1 stop bit, no parity (стандарт)
+    .mcr = 0x00,
+    .msr = 0xB0,  // CTS, DSR, DCD активны
+};
+
+// ============================================================================
+// CTTY Mode - переключение между keyboard и COM1 режимами
+// ============================================================================
+bool ctty_mode = false;  // false = keyboard mode, true = CTTY mode
 
 // ============================================================================
 // IRQ System - Intel 8259A Compatible Controller
@@ -45,7 +52,7 @@ bool speakerenabled = false;
 // ============================================================================
 // Keyboard - Single Scancode (no buffer needed for human input)
 // ============================================================================
-volatile uint8_t current_scancode = 0; // 0 = нет данных
+uint8_t current_scancode = 0; // 0 = нет данных
 
 // ============================================================================
 // ASCII to Scancode (IBM PC/XT Set 1) - Simplified
@@ -139,7 +146,6 @@ void pic_init(void) {
 [[noreturn]] void bus_handler_core(void) {
     start_cpu_clock(); // Start i8086 clock generator
     pic_init(); // Initialize interrupt controller and start Core1 IRQ generator
-    i8272_reset(); // Initialize floppy disk controller
     cpu_bus_init(); // Initialize bus BEFORE releasing i8086 from reset
     reset_cpu(); // Now i8086 can safely start
 
@@ -189,24 +195,37 @@ void pic_init(void) {
             printf("\033[2J\033[H");
             for (int y = 0; y < 25; y++) {
                 for (int x = 0; x < 160; x += 2) {
-                    printf("%c", VIDEORAM[__fast_mul(y, 160) + x]);
+                    putchar_raw(VIDEORAM[__fast_mul(y, 160) + x]);
                 }
-                printf("\n");
+                putchar_raw(0x0D);
+                putchar_raw(0x0A);
             }
         }
+
+        // DMA polling и передача данных (асинхронная эмуляция Intel 8237)
 
         int c = getchar_timeout_us(0);
 
         // Special debug commands (uppercase variants)
         if (c == '`') {
             video_enabled = !video_enabled;
+        } else if (c == 'C') {
+            // Переключение между keyboard и CTTY режимами
+            ctty_mode = !ctty_mode;
+            printf("\033[2J\033[H");
+            if (ctty_mode) {
+                video_enabled = false;
+                printf("*** CTTY Mode Enabled ***\n");
+                printf("Press 'C' again to return to keyboard mode.\n\n");
+            } else {
+                video_enabled = true;
+            }
         } else if (c == 'R') {
             printf("\033[2JReseting cpu\n");
             gpio_put(INTR_PIN, 0); // По умолчанию LOW
             reset_cpu();
             // watchdog_enable(0, 0);
         } else if (c == 'B') {
-            printf("===================== RESET");
             reset_usb_boot(0, 0);
         } else if (c == 'M') {
             printf("\nEnter base address (hex): ");
@@ -259,9 +278,18 @@ void pic_init(void) {
                 printf("\n");
             }
         } else if (c != PICO_ERROR_TIMEOUT) {
-            // Regular key - convert to scancode and send to i8086
-            const uint8_t scancode = ascii_to_scancode(c);
-            push_scancode(scancode);
+            // ═══════════════════════════════════════════════════════
+            // Обработка обычных символов в зависимости от режима
+            // ═══════════════════════════════════════════════════════
+            if (ctty_mode) {
+                // CTTY Mode: USB → UART RBR → DOS
+                uart.rbr = (uint8_t)c;
+                uart.data_ready = true;
+            } else {
+                // Keyboard Mode: USB → Scancode → i8086
+                const uint8_t scancode = ascii_to_scancode(c);
+                push_scancode(scancode);
+            }
         }
 
         //__wfi();

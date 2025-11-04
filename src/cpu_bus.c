@@ -35,6 +35,30 @@ void __time_critical_func(bus_write_handler)() {
 }
 
 void __time_critical_func(bus_read_handler)() {
+    // INTA cycle проверяем первым (более редкий, но высокоприоритетный)
+    if (unlikely(pio_interrupt_get(BUS_CTRL_PIO, 3))) {
+        pio_interrupt_clear(BUS_CTRL_PIO, 3);
+        const uint8_t vector = i8259_nextirq();
+        if (vector) {
+            irq_pending_vector = 0xFF00 | vector;
+        }
+        return; // ← ВАЖНО: INTA не требует чтения данных
+    }
+
+    // IRQ1 - обычное чтение (без дополнительной проверки)
+    const uint32_t bus_state = BUS_CTRL_PIO->rxf[BUS_CTRL_SM];
+
+    if (unlikely(irq_pending_vector)) {
+        BUS_CTRL_PIO->txf[BUS_CTRL_SM] = irq_pending_vector << 16 | 0x00FF;
+        irq_pending_vector = 0;
+    } else {
+        BUS_CTRL_PIO->txf[BUS_CTRL_SM] = i8086_read(bus_state, bus_state & MIO, bus_state & BHE) << 16 | 0xFFFF;
+    }
+
+    pio_interrupt_clear(BUS_CTRL_PIO, 1);
+}
+
+void __time_critical_func(bus_read_handler1)() {
     if (pio_interrupt_get(BUS_CTRL_PIO, 1)) {
         // Прямой доступ к FIFO. pio_interrupt_get() уже подтвердил что данные есть,
         // повторная проверка в pio_sm_get_blocking() избыточна.

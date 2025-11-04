@@ -64,9 +64,15 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
         pico_multicore
         hardware_pio
         hardware_pwm
-#        -Wl,--wrap=atexit,--wrap=abort,--strip-all,--gc-sections # size optimizations
+
 )
 pico_set_binary_type(${PROJECT_NAME} copy_to_ram)
 
 pico_add_extra_outputs(${PROJECT_NAME})
-target_link_options(${PROJECT_NAME} PRIVATE -Xlinker --print-memory-usage --data-sections --function-sections)
+target_link_options(${PROJECT_NAME} PRIVATE
+        -Xlinker
+        --print-memory-usage
+        --data-sections
+        --function-sections
+        -Wl,--wrap=atexit,--wrap=abort,--strip-all,--gc-sections # size optimizations
+)
