@@ -87,7 +87,7 @@ __force_inline uint8_t ascii_to_scancode(const int ascii) {
 // ============================================================================
 // Set scancode and trigger IRQ1 (keyboard interrupt)
 // ============================================================================
-__force_inline void push_scancode(const uint8_t scancode) {
+__force_inline static void push_scancode(const uint8_t scancode) {
     if (scancode == 0x00) return; // Ignore unknown keys
 
     current_scancode = scancode;

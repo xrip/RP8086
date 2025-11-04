@@ -57,7 +57,7 @@
 // ============================================================================
 // Inline Helper Functions
 // ============================================================================
-
+// Универсальная функция записи с поддержкой BHE (8/16-bit operations)
 __always_inline static void write_to(uint8_t *destination, const uint32_t address,
                                        const uint16_t data, const bool bhe) {
     const uint32_t A0 = address & 1;
@@ -73,21 +73,8 @@ __always_inline static void write_to(uint8_t *destination, const uint32_t addres
     destination[address] = byte_val;
 }
 
-// Универсальная функция записи с поддержкой BHE (8/16-bit operations)
-__always_inline static void write_to1(uint8_t *destination, const uint32_t address,
-                                      const uint16_t data, const bool bhe) {
-    const bool A0 = address & 1;
-    if (likely(!bhe && !A0)) {
-        // 16-bit aligned write
-        *(uint16_t *)&destination[address] = data;
-    } else if (bhe && !A0) {
-        // Low byte only
-        destination[address] = (uint8_t)(data & 0xFF);
-    } else if (!bhe && A0) {
-        // High byte only
-        destination[address] = (uint8_t)(data >> 8);
-    }
-}
+// Общедоступные массивы и структу
+
 extern uint8_t RAM[RAM_SIZE] __attribute__((aligned(4)));
 extern uint8_t VIDEORAM[4096] __attribute__((aligned(4)));
 
