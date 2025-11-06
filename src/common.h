@@ -16,10 +16,14 @@
 #define unlikely(x)     __builtin_expect(!!(x), 0)
 #if PICO_RP2350
 #define PICO_CLOCK_SPEED     (500 * MHZ)  // Raspberry Pi Pico clock frequency
+
 #define I8086_CLOCK_SPEED    (4700 * KHZ)  // i8086 clock frequency
+#define RAM_SIZE               ((512-96) * 1024)                       // 192KB RAM (maximum that fits)
 #else
 #define PICO_CLOCK_SPEED     (400 * MHZ)  // Raspberry Pi Pico clock frequency
+
 #define I8086_CLOCK_SPEED    (3250 * KHZ)  // i8086 clock frequency
+#define RAM_SIZE               ((256-64) * 1024)                       // 192KB RAM (maximum that fits)
 #endif
 #define CONFIG_I8086_DUTY_CYCLE 33      // 33% duty cycle (required for i8086)
 
@@ -41,7 +45,7 @@
 // ============================================================================
 // Memory Configuration
 // ============================================================================
-#define RAM_SIZE               (192 * 1024)                       // 192KB RAM (maximum that fits)
+
 #define BIOS_ROM_SIZE          8192                               // 8KB BIOS
 #define BIOS_ROM_BASE          (0x100000 - BIOS_ROM_SIZE)         // 0xFE000-0xFFFFF
 

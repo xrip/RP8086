@@ -56,11 +56,11 @@ __force_inline static uint8_t i8253_read(const uint16_t port_number) {
         // В реальном 8253 счетчик декрементируется на каждом тике 1.193 MHz
         // Для упрощения декрементируем на небольшое значение при каждом чтении
         if (i8253.channel_active[channel]) {
-            if (i8253.channel_current_count[channel] < 50) {
+            if (i8253.channel_current_count[channel] < 250) {
                 // Reload counter
                 i8253.channel_current_count[channel] = i8253.channel_reload_value[channel];
             } else {
-                i8253.channel_current_count[channel] -= 50;
+                i8253.channel_current_count[channel] -= 250;
             }
         }
 

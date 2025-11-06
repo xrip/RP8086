@@ -22,6 +22,7 @@ add_compile_options(
         -Ofast
 )
 
+
 add_link_options(-flto -fwhole-program)
 
 add_executable(${PROJECT_NAME}
@@ -31,11 +32,18 @@ add_executable(${PROJECT_NAME}
         src/common.c
 )
 
+add_subdirectory(drivers/graphics)
+add_subdirectory(drivers/vga-nextgen)
+target_link_libraries(${PROJECT_NAME} PRIVATE vga-nextgen)
+message(STATUS "VGA display enabled")
+
 pico_define_boot_stage2(slower_boot ${PICO_DEFAULT_BOOT_STAGE2_FILE})
 target_compile_definitions(slower_boot PRIVATE PICO_FLASH_SPI_CLKDIV=4)
 pico_set_boot_stage2(${PROJECT_NAME} slower_boot)
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE
+        VGA
+        VGA_BASE_PIN=30
         PICO_FLASH_SIZE_BYTES=16777216
         PICO_PRINTF_ALWAYS_INCLUDED=0
         #        PICO_STACK_SIZE=1024
@@ -60,6 +68,8 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
+        graphics
+
         pico_runtime
         pico_stdio
         pico_multicore

@@ -3,6 +3,7 @@
 #include "cpu.h"
 #include "cpu_bus.h"
 #include "common.h"
+#include "graphics.h"
 #include "hardware/watchdog.h"
 #include "pico/bootrom.h"
 #include "pico/multicore.h"
@@ -159,7 +160,14 @@ static void pic_init(void) {
     next_frame = delayed_by_us(next_frame, 16666);
  
     bool video_enabled = true;
-
+#if RP2350
+    graphics_init();
+    graphics_set_buffer((uint8_t *)VIDEORAM, 320, 200);
+    graphics_set_textbuffer((uint8_t *)VIDEORAM);
+    graphics_set_bgcolor(0);
+    graphics_set_offset(0, 0);
+    graphics_set_flashmode(true, true);
+#endif
     while (true) {
         // Отрисовка MDA фреймбуфера
         if (video_enabled && absolute_time_diff_us(next_frame, get_absolute_time()) >= 0) {

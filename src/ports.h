@@ -15,7 +15,7 @@ extern uint8_t current_scancode; // Keyboard scancode (defined in main.c)
 // ============================================================================
 // Port State Variables
 // ============================================================================
-static uint8_t port3DA = 0; // VGA status port state
+uint8_t port3DA = 0; // VGA status port state
 static uint8_t port61 = 0;  // System Control Port B (8255 PPI Port B)
 
 // Keyboard controller (8042) state
@@ -28,7 +28,11 @@ __force_inline static uint8_t port_read8(const uint32_t address) {
     switch (address) {
         case 0x3BA: {
             // MDA status port
+#if RP2350
+            return port3DA;
+#else
             return port3DA ^= 9;
+#endif
         }
         case 0 ... 0x0F: {
             return i8237_readport(address);
