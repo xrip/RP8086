@@ -80,6 +80,17 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 pico_set_binary_type(${PROJECT_NAME} copy_to_ram)
 
 pico_add_extra_outputs(${PROJECT_NAME})
+
+# Post-build step: increment build number and copy firmware files with incremental suffix
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+            -DOUTPUT_DIR=${OUTPUT_DIR}
+            -DPROJECT_NAME=${PROJECT_NAME}
+            -DBUILD_NUMBER_FILE=${CMAKE_SOURCE_DIR}/.build_number
+            -P ${CMAKE_SOURCE_DIR}/cmake/rename_with_build_number.cmake
+        COMMENT "Appending incremental build number to firmware filenames"
+)
+
 target_link_options(${PROJECT_NAME} PRIVATE
         -Xlinker
         --print-memory-usage
