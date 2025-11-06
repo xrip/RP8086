@@ -180,8 +180,11 @@ static void pic_init(void) {
             printf("\033[40m");      // black background
             printf("\033[?25l");     // hide cursor (reduce flicker)
             for (int y = 0; y < 25; y++) {
-                for (int x = 0; x < 160; x += 2) {
-                    putchar_raw(VIDEORAM[__fast_mul(y, 160) + x]);
+                const uint32_t *framebuffer_line = (uint32_t*) VIDEORAM + __fast_mul(y, 40);
+                for (int x = 40; x--;) {
+                    const uint32_t dword = *framebuffer_line++ & 0x00FF00FF;
+                    putchar_raw(dword);
+                    putchar_raw(dword >> 16);
                 }
                 if (y != 24) {
                     putchar_raw(0x0D);

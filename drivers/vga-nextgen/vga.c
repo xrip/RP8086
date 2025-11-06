@@ -1,4 +1,3 @@
-#pragma GCC optimize("Ofast")
 #include "graphics.h"
 #include "hardware/clocks.h"
 #include "stdbool.h"
@@ -11,7 +10,6 @@
 #include <stdio.h>
 #include "hardware/pio.h"
 #include "stdlib.h"
-extern uint8_t vga_graphics_control[9];
 uint16_t pio_program_VGA_instructions[] = {
     //     .wrap_target
     0x6008, //  0: out    pins, 8
@@ -33,7 +31,7 @@ static uint32_t *lines_pattern_data = NULL;
 static int _SM_VGA = -1;
 
 
-static int N_lines_total = 525;
+static  int N_lines_total = 525;
 static int N_lines_visible = 480;
 static int line_VS_begin = 490;
 static int line_VS_end = 491;
@@ -133,7 +131,7 @@ void __time_critical_func() dma_handler_VGA() {
 
 
     uint32_t * *output_buffer = &lines_pattern[2 + (screen_line & 1)];
-    uint16_t *output_buffer_16bit = (uint16_t *) (*output_buffer) + shift_picture / 2;
+    uint16_t *__restrict output_buffer_16bit = (uint16_t *) (*output_buffer) + shift_picture / 2;
 
     switch (graphics_mode) {
         case TEXTMODE_80x25_COLOR:
@@ -143,30 +141,39 @@ void __time_critical_func() dma_handler_VGA() {
             const uint8_t glyph_line = screen_line & 15;
 
             //указатель откуда начать считывать символы
-            const uint8_t *text_buffer_line = &VIDEORAM[__fast_mul(y_div_16, 160)];
+            const uint32_t *__restrict text_buffer_line = (uint32_t*) VIDEORAM + __fast_mul(y_div_16, 40);
 
-            for (uint8_t column = 0; column < 80; column++) {
-                uint8_t glyph_pixels = font_8x16[(*text_buffer_line++ & 0xFF) * 16 + glyph_line];
-                const uint8_t color = *text_buffer_line++;
-                const uint16_t *palette_color = &txt_palette_fast[4 * color];
+            for (int i = 40; i--;) {
+                uint32_t dword = *text_buffer_line++;
 
-                const uint8_t cursor_active = 0;
+                // Первый символ из пачки
+                uint8_t glyph_pixels = font_8x16[(dword & 0xFF) * 16 + glyph_line];
+                dword >>= 8;
+                const uint16_t *palette_color = &txt_palette_fast[4 * (dword & 0xFF)];
+                dword >>= 8;
 
-                if (cursor_active) {
-                    *output_buffer_16bit++ = palette_color[3];
-                    *output_buffer_16bit++ = palette_color[3];
-                    *output_buffer_16bit++ = palette_color[3];
-                    *output_buffer_16bit++ = palette_color[3];
-                } else {
-                    *output_buffer_16bit++ = palette_color[glyph_pixels & 3];
-                    glyph_pixels >>= 2;
-                    *output_buffer_16bit++ = palette_color[glyph_pixels & 3];
-                    glyph_pixels >>= 2;
-                    *output_buffer_16bit++ = palette_color[glyph_pixels & 3];
-                    glyph_pixels >>= 2;
-                    *output_buffer_16bit++ = palette_color[glyph_pixels];
-                }
+                *output_buffer_16bit++ = palette_color[glyph_pixels & 3];
+                glyph_pixels >>= 2;
+                *output_buffer_16bit++ = palette_color[glyph_pixels & 3];
+                glyph_pixels >>= 2;
+                *output_buffer_16bit++ = palette_color[glyph_pixels & 3];
+                glyph_pixels >>= 2;
+                *output_buffer_16bit++ = palette_color[glyph_pixels];
+
+                // Первый символ из второй символ из пачки
+                glyph_pixels = font_8x16[(dword & 0xFF) * 16 + glyph_line];
+                dword >>= 8;
+                palette_color = &txt_palette_fast[4 * (dword & 0xFF)];
+
+                *output_buffer_16bit++ = palette_color[glyph_pixels & 3];
+                glyph_pixels >>= 2;
+                *output_buffer_16bit++ = palette_color[glyph_pixels & 3];
+                glyph_pixels >>= 2;
+                *output_buffer_16bit++ = palette_color[glyph_pixels & 3];
+                glyph_pixels >>= 2;
+                *output_buffer_16bit++ = palette_color[glyph_pixels];
             }
+
             dma_channel_set_read_addr(dma_channel_control, output_buffer, false);
             port3DA |= 1; // no more data shown
             return;
