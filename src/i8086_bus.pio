@@ -108,7 +108,7 @@ void i8086_bus_program_init(PIO pio, uint sm, uint offset)
 
     // Инициализация GPIO для управления через PIO
     // AD0-AD15: двунаправленная шина данных (стартуют как входы)
-    for (int i = 0; i < 16; i++) {
+    for (int i = 0; i < 26; i++) {
         pio_gpio_init(pio, i8086_bus_AD_BUS_PINS + i);
     }
 
@@ -116,7 +116,7 @@ void i8086_bus_program_init(PIO pio, uint sm, uint offset)
     pio_gpio_init(pio, i8086_bus_READY_PIN);
 
     // Установка направлений пинов
-    pio_sm_set_consecutive_pindirs(pio, sm, i8086_bus_AD_BUS_PINS, 16, false);  // AD0-AD15: входы
+    pio_sm_set_consecutive_pindirs(pio, sm, i8086_bus_AD_BUS_PINS, 25, false);  // AD0-AD15: входы
     pio_sm_set_consecutive_pindirs(pio, sm, i8086_bus_READY_PIN, 1, true);      // READY: выход
 
     // Установить READY=HIGH до старта

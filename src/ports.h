@@ -37,7 +37,7 @@ __force_inline static uint8_t port_read8(const uint32_t address) {
         case 0x20 ... 0x21: {
             return i8259_read(address);
         }
-        case 0x40 ... 0x43: {
+        case 0x40 ... 0x42: {
             return i8253_read(address);
         }
         case 0x60: {

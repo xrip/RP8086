@@ -9,6 +9,9 @@
 #include "hardware/i8259.h"
 #include "hardware/i8253.h"
 #include "hardware/uart16550.h"
+#if PICO_RP2350
+#include <hardware/structs/qmi.h>
+#endif
 
 
 uint32_t timer_interval = 54925;
@@ -132,10 +135,19 @@ static void pic_init(void) {
 }
 
 [[noreturn]] int main() {
+#if PICO_RP2350
+    vreg_disable_voltage_limit();
+    vreg_set_voltage(VREG_VOLTAGE_1_60);
+    busy_wait_at_least_cycles((SYS_CLK_VREG_VOLTAGE_AUTO_ADJUST_DELAY_US * (uint64_t) XOSC_HZ) / 1000000);
+    qmi_hw->m[0].timing = 0x60007304; // 4x FLASH divisor
+    set_sys_clock_hz(PICO_CLOCK_SPEED, true);
+#else
     // Overclock to 400 MHz for maximum performance
     hw_set_bits(&vreg_and_chip_reset_hw->vreg, VREG_AND_CHIP_RESET_VREG_VSEL_BITS);
     busy_wait_at_least_cycles((SYS_CLK_VREG_VOLTAGE_AUTO_ADJUST_DELAY_US * (uint64_t) XOSC_HZ) / 1000000);
     set_sys_clock_hz(PICO_CLOCK_SPEED, true);
+
+    #endif
     // busy_wait_ms(250); // Даем время стабилизироваться напряжению
     stdio_usb_init();
     while (!stdio_usb_connected()) { tight_loop_contents(); }
@@ -151,15 +163,21 @@ static void pic_init(void) {
     while (true) {
         // Отрисовка MDA фреймбуфера
         if (video_enabled && absolute_time_diff_us(next_frame, get_absolute_time()) >= 0) {
-            next_frame = delayed_by_us(next_frame, 16666);
+            next_frame = delayed_by_us(next_frame, 16666 * 2);
 
-            printf("\033[2J\033[H");
+            printf("\033[H");        // cursor home
+            printf("\033[2J");       // clear screen
+            printf("\033[3J");       // clear scrollback
+            printf("\033[40m");      // black background
+            printf("\033[?25l");     // hide cursor (reduce flicker)
             for (int y = 0; y < 25; y++) {
                 for (int x = 0; x < 160; x += 2) {
                     putchar_raw(VIDEORAM[__fast_mul(y, 160) + x]);
                 }
-                putchar_raw(0x0D);
-                putchar_raw(0x0A);
+                if (y != 24) {
+                    putchar_raw(0x0D);
+                    putchar_raw(0x0A);
+                }
             }
         }
 

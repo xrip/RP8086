@@ -14,16 +14,13 @@
 // ============================================================================
 #define likely(x)       __builtin_expect(!!(x), 1)
 #define unlikely(x)     __builtin_expect(!!(x), 0)
-
-// ============================================================================
-// System Configuration
-// ============================================================================
+#if PICO_RP2350
+#define PICO_CLOCK_SPEED     (500 * MHZ)  // Raspberry Pi Pico clock frequency
+#define I8086_CLOCK_SPEED    (4700 * KHZ)  // i8086 clock frequency
+#else
 #define PICO_CLOCK_SPEED     (400 * MHZ)  // Raspberry Pi Pico clock frequency
-
-// ============================================================================
-// i8086 Clock Configuration
-// ============================================================================
 #define I8086_CLOCK_SPEED    (3250 * KHZ)  // i8086 clock frequency
+#endif
 #define CONFIG_I8086_DUTY_CYCLE 33      // 33% duty cycle (required for i8086)
 
 // ============================================================================
