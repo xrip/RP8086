@@ -148,7 +148,7 @@ void __time_critical_func() dma_handler_VGA() {
             for (uint8_t column = 0; column < 80; column++) {
                 uint8_t glyph_pixels = font_8x16[(*text_buffer_line++ & 0xFF) * 16 + glyph_line];
                 const uint8_t color = *text_buffer_line++;
-                const uint16_t *palette_color = &txt_palette_fast[4];
+                const uint16_t *palette_color = &txt_palette_fast[4 * color];
 
                 const uint8_t cursor_active = 0;
 
@@ -194,6 +194,33 @@ void __time_critical_func() dma_handler_VGA() {
     uint16_t *current_palette = palette[(y & is_flash_line) + (frame_number & is_flash_frame) & 1];
 
     uint8_t *output_buffer_8bit;
+    switch (graphics_mode) {
+        case CGA_320x200x4:
+        case CGA_320x200x4_BW: {
+            const register uint8_t *cga_row = &VIDEORAM[__fast_mul(y >> 1, 80) + ((y & 1) << 13)];
+            //2bit buf
+            for (int x = 320 / 4; x--;) {
+                const uint8_t cga_byte = *cga_row++ & 0xFF;
+
+                uint8_t color = cga_byte >> 6;
+                *output_buffer_16bit++ = current_palette[color];
+                color = (cga_byte >> 4) & 3;
+                *output_buffer_16bit++ = current_palette[color];
+                color = (cga_byte >> 2) & 3;
+                *output_buffer_16bit++ = current_palette[color];
+                color = (cga_byte >> 0) & 3;
+                *output_buffer_16bit++ = current_palette[color];
+            }
+            break;
+        }
+
+        default:
+            const uint8_t *vga_row = &VIDEORAM[__fast_mul(y, 80)];
+            for (int x = 80; x--;) {
+                *output_buffer_16bit++ = current_palette[*vga_row++ & 0xFF];
+            }
+            break;
+    }
     dma_channel_set_read_addr(dma_channel_control, output_buffer, false);
     port3DA |= 1; // no more data shown
 }

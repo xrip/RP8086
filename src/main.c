@@ -160,13 +160,14 @@ static void pic_init(void) {
     next_frame = delayed_by_us(next_frame, 16666);
  
     bool video_enabled = true;
-#if RP2350
+#if PICO_RP2350
     graphics_init();
-    graphics_set_buffer((uint8_t *)VIDEORAM, 320, 200);
+    graphics_set_buffer((uint8_t *)VIDEORAM, 80, 200);
     graphics_set_textbuffer((uint8_t *)VIDEORAM);
     graphics_set_bgcolor(0);
     graphics_set_offset(0, 0);
     graphics_set_flashmode(true, true);
+    //graphics_set_mode(TEXTMODE_80x25_BW);
 #endif
     while (true) {
         // Отрисовка MDA фреймбуфера

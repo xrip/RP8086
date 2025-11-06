@@ -87,7 +87,7 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
             -DOUTPUT_DIR=${OUTPUT_DIR}
             -DPROJECT_NAME=${PROJECT_NAME}
             -DBUILD_NUMBER_FILE=${CMAKE_SOURCE_DIR}/.build_number
-            -P ${CMAKE_SOURCE_DIR}/cmake/rename_with_build_number.cmake
+            -P ${CMAKE_SOURCE_DIR}/rename_with_build_number.cmake
         COMMENT "Appending incremental build number to firmware filenames"
 )
 
