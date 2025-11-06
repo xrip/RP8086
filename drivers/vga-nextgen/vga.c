@@ -180,14 +180,9 @@ void __time_critical_func() dma_handler_VGA() {
         }
     }
 
-    if (screen_line & 1 && (
-            graphics_mode != HERC_640x480x2_90 &&
-            graphics_mode != HERC_640x480x2 &&
-            graphics_mode != VGA_640x480x2 &&
-            graphics_mode != EGA_640x350x16x4
-        )
-    )
+    if (screen_line & 1)
         return;
+
     uint32_t y = screen_line >> 1;
 
     if (screen_line >= 400) {
@@ -207,7 +202,7 @@ void __time_critical_func() dma_handler_VGA() {
             const register uint8_t *cga_row = &VIDEORAM[__fast_mul(y >> 1, 80) + ((y & 1) << 13)];
             //2bit buf
             for (int x = 320 / 4; x--;) {
-                const uint8_t cga_byte = *cga_row++ & 0xFF;
+                const uint8_t cga_byte = *cga_row++;
 
                 uint8_t color = cga_byte >> 6;
                 *output_buffer_16bit++ = current_palette[color];
@@ -224,7 +219,7 @@ void __time_critical_func() dma_handler_VGA() {
         default:
             const uint8_t *vga_row = &VIDEORAM[__fast_mul(y, 80)];
             for (int x = 80; x--;) {
-                *output_buffer_16bit++ = current_palette[*vga_row++ & 0xFF];
+                *output_buffer_16bit++ = current_palette[*vga_row++];
             }
             break;
     }

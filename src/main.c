@@ -167,7 +167,9 @@ static void pic_init(void) {
     graphics_set_bgcolor(0);
     graphics_set_offset(0, 0);
     graphics_set_flashmode(true, true);
-    //graphics_set_mode(TEXTMODE_80x25_BW);
+    graphics_set_mode(CGA_320x200x4);
+    busy_wait_us(33);
+    graphics_set_mode(TEXTMODE_80x25_BW);
 #endif
     while (true) {
         // Отрисовка MDA фреймбуфера
