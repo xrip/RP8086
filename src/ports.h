@@ -25,7 +25,9 @@ static uint8_t keyboard_response_buffer = 0;
 static bool keyboard_has_response = false;
 
 __force_inline static uint8_t port_read8(const uint32_t address) {
+    // printf("port read %03x\n", address);
     switch (address) {
+        case 0x3DA:
         case 0x3BA: {
             // MDA status port
 #if RP2350
@@ -62,7 +64,21 @@ __force_inline static uint8_t port_read8(const uint32_t address) {
             // Bit 4: RAM parity check (1=no error)
             // Bit 5: I/O channel check (1=no error)
             // Возвращаем сохраненное значение с установленными битами 4-5 (нет ошибок)
-            return (port61 & 0x0F) | 0x30;
+            port61 ^= 0x10;
+            return port61;
+        }
+            case 0x62: {
+            uint8_t r = 0;
+            if (port61 & 0x8) {
+                r |= 0; //1 << 2; // 1 FDD
+                // r |= 0b01; // CGA 40x25
+                // r |= 0b10; // CGA 80x25
+                r |= 0x3; // MdA
+                // r = 0b00111101;
+            } else {
+                r |= 0x4;
+            }
+            return r;
         }
         case 0x64: {
             // Keyboard Controller Status Register (Intel 8042)
@@ -100,32 +116,6 @@ __force_inline static uint8_t port_read8(const uint32_t address) {
     }
 }
 
-// ============================================================================
-// Port Read (16-bit)
-// ============================================================================
-__force_inline static uint16_t port_read(const uint32_t address, const bool bhe) {
-    // Оптимизация: проверяем A0 и BHE для выбора 8/16-битного пути
-    const bool a0 = address & 1;
-
-    // BHE=0, A0=0 -> 16-битная операция word (оба байта)
-    if (likely(!bhe && !a0)) {
-        return port_read8(address) | (port_read8(address + 1) << 8);
-    }
-
-    // BHE=1, A0=0 -> 8-битная операция low byte (старший байт выключен)
-    if (unlikely(bhe && !a0)) {
-        return port_read8(address);
-    }
-
-    // BHE=0, A0=1 -> 8-битная операция high byte (нечетный адрес)
-    if (unlikely(!bhe && a0)) {
-        return port_read8(address) << 8;
-    }
-
-    // BHE=1, A0=1 -> невалидная комбинация (не используется в i8086)
-    return 0xFFFF;
-}
-
 __force_inline static void port_write8(const uint32_t address, const uint8_t data, const bool bhe) {
     switch (address) {
         case 0 ... 0x0F: {
@@ -149,8 +139,7 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
         }
         case 0x61: {
             // System Control Port B (8255 PPI Port B)
-            // Сохраняем младшие биты (speaker, timer gate, keyboard control)
-            port61 = data;
+            port61 = (port61 & 0x10) | (data & 0x0f);
             return;
         }
         case 0x64: {
@@ -195,6 +184,32 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
             return uart_write(address, data);
         }
     }
+}
+
+// ============================================================================
+// Port Read (16-bit)
+// ============================================================================
+__force_inline static uint16_t port_read(const uint32_t address, const bool bhe) {
+    // Оптимизация: проверяем A0 и BHE для выбора 8/16-битного пути
+    const bool a0 = address & 1;
+
+    // BHE=0, A0=0 -> 16-битная операция word (оба байта)
+    if (likely(!bhe && !a0)) {
+        return port_read8(address) | (port_read8(address + 1) << 8);
+    }
+
+    // BHE=1, A0=0 -> 8-битная операция low byte (старший байт выключен)
+    if (unlikely(bhe && !a0)) {
+        return port_read8(address);
+    }
+
+    // BHE=0, A0=1 -> 8-битная операция high byte (нечетный адрес)
+    if (unlikely(!bhe && a0)) {
+        return port_read8(address) << 8;
+    }
+
+    // BHE=1, A0=1 -> невалидная комбинация (не используется в i8086)
+    return 0xFFFF;
 }
 
 // ============================================================================

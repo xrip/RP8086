@@ -14,10 +14,11 @@
 // ============================================================================
 #define likely(x)       __builtin_expect(!!(x), 1)
 #define unlikely(x)     __builtin_expect(!!(x), 0)
+#define VIDEORAM_SIZE (16384)
 #if PICO_RP2350
 #define PICO_CLOCK_SPEED     (500 * MHZ)  // Raspberry Pi Pico clock frequency
 #define PSRAM_FREQ_MHZ (166* MHZ)
-#define I8086_CLOCK_SPEED    (4700 * KHZ)  // i8086 clock frequency
+#define I8086_CLOCK_SPEED    (4750 * KHZ)  // i8086 clock frequency
 #define RAM_SIZE               ((512-96) * 1024)                       // 192KB RAM (maximum that fits)
 #else
 #define PICO_CLOCK_SPEED     (400 * MHZ)  // Raspberry Pi Pico clock frequency
@@ -77,7 +78,7 @@ __always_inline static void write_to(uint8_t *destination, const uint32_t addres
 // Общедоступные массивы и структу
 
 extern uint8_t RAM[RAM_SIZE] __attribute__((aligned(4)));
-extern uint8_t VIDEORAM[4096] __attribute__((aligned(4)));
+extern uint8_t VIDEORAM[VIDEORAM_SIZE] __attribute__((aligned(4)));
 
 typedef struct {
     uint8_t interrupt_mask_register; //mask register
@@ -90,15 +91,18 @@ typedef struct {
 } i8259_s;
 
 typedef struct {
-    uint16_t channel_reload_value[3]; // chandata -> channel reload values (what gets loaded into counters)
-    uint8_t channel_access_mode[3]; // accessmode -> how each channel is accessed (lobyte/hibyte/toggle)
-    uint8_t channel_byte_toggle[3]; // bytetoggle -> tracks which byte to read/write in toggle mode
-    uint32_t channel_effective_count[3]; // effectivedata -> actual count value used by channel
-    float channel_frequency[3]; // chanfreq -> calculated frequency for each channel
-    uint8_t channel_active[3]; // active -> whether channel is actively counting
-    uint16_t channel_current_count[3]; // counter -> current counter value for each channel
-    uint16_t channel_latched_value[3]; // latched value for LATCHCOUNT mode
-    uint8_t channel_latch_mode[3]; // latch mode: 0=not latched, 1=lobyte, 2=hibyte, 3=toggle
+    uint16_t reload_value;       // Значение для загрузки в счётчик
+    uint8_t access_mode;         // Режим доступа: LOBYTE/HIBYTE/TOGGLE
+    uint8_t byte_toggle;         // Отслеживание байта в режиме TOGGLE
+    uint8_t active;              // Канал активно считает (bool)
+    uint8_t latch_mode;          // Режим latch: 0=нет, 1=lobyte, 2=hibyte, 3=toggle
+    uint16_t latched_value;      // Защёлкнутое значение для LATCHCOUNT
+    uint64_t start_timestamp_us; // Временная метка старта
+} i8253_channel_s;
+
+// Intel 8253 Programmable Interval Timer (3 независимых канала)
+typedef struct {
+    i8253_channel_s channels[3];
 } i8253_s;
 
 typedef struct {

@@ -237,7 +237,7 @@ void __no_inline_not_in_flash_func(psram_init)(uint cs_pin) {
     absolute_time_t next_frame = get_absolute_time();
     next_frame = delayed_by_us(next_frame, 16666);
  
-    bool video_enabled = true;
+    bool video_enabled = false;
 #if PICO_RP2350
     graphics_init();
     graphics_set_buffer((uint8_t *)VIDEORAM, 80, 200);
@@ -334,19 +334,39 @@ void __no_inline_not_in_flash_func(psram_init)(uint cs_pin) {
                     break;
             }
         } else if (c == 'V') {
-            printf("\nVideo Memory dump \n");
-            for (int i = 0; i < 160 * 5; i += 16) {
-                printf("%04X: ", i);
+            printf("\nEnter base address (hex): ");
+            uint32_t base = 0;
+            while (1) {
+                int k = getchar_timeout_us(0);
+                if (k == PICO_ERROR_TIMEOUT) continue;
+
+                if (k == '\r' || k == '\n') break;
+
+                if ((k >= '0' && k <= '9') || (k >= 'a' && k <= 'f') || (k >= 'A' && k <= 'F')) {
+                    k = (k >= 'a') ? k - 'a' + 10 : (k >= 'A') ? k - 'A' + 10 : k - '0';
+                    base = (base << 4) | k;
+                    printf("%X", k);
+                }
+            }
+            printf("\nVideo dump from %04X:\n", base);
+
+            for (int i = 0; i < 0x200 && i + base < RAM_SIZE; i += 16) {
+                printf("%04X: ", base + i);
                 for (int j = 0; j < 16; j++) {
-                    uint8_t value = VIDEORAM[i + j];
+                    uint8_t value = VIDEORAM[base + i + j];
                     printf("%02X ", value);
                 }
                 printf(" | ");
                 for (int j = 0; j < 16; j++) {
-                    uint8_t value = VIDEORAM[i + j];
-                    printf("%c", value);
+                    uint8_t value = VIDEORAM[base + i + j];
+                    printf("%c", (value >= 32 && value < 127) ? value : '.');
                 }
                 printf("\n");
+
+                // Check for abort keys
+                int k = getchar_timeout_us(0);
+                if (k != PICO_ERROR_TIMEOUT && (k == 'M' || k == 'R' || k == 'B' || k == 'V'))
+                    break;
             }
         } else if (c != PICO_ERROR_TIMEOUT) {
             // ═══════════════════════════════════════════════════════
