@@ -90,7 +90,29 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
             -P ${CMAKE_SOURCE_DIR}/rename_with_build_number.cmake
         COMMENT "Appending incremental build number to firmware filenames"
 )
+execute_process(
+        COMMAND git rev-parse --abbrev-ref HEAD
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        OUTPUT_VARIABLE GIT_BRANCH
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+)
 
+execute_process(
+        COMMAND git rev-parse --short HEAD
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        OUTPUT_VARIABLE GIT_COMMIT_HASH
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+        PICO_BUILD_NAME="${BUILD_NAME}"
+        PICO_GIT_BRANCH="${GIT_BRANCH}"
+        PICO_GIT_COMMIT="${GIT_COMMIT_HASH}"
+)
+
+pico_set_program_name(${PROJECT_NAME}  "${PROJECT_NAME}")
+pico_set_program_version(${PROJECT_NAME} "${GIT_BRANCH} ${GIT_COMMIT_HASH}")
+pico_set_linker_script(${PROJECT_NAME} "${CMAKE_SOURCE_DIR}/memmap.ld")
 target_link_options(${PROJECT_NAME} PRIVATE
         -Xlinker
         --print-memory-usage

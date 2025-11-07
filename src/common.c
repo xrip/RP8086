@@ -3,7 +3,7 @@
 #include "hardware/i8237.h"
 #include "hardware/i8272.h"
 
-uint8_t RAM[RAM_SIZE] __attribute__((aligned(4)));
+uint8_t RAM[RAM_SIZE] __attribute__((aligned(4), section(".RAM")));
 uint8_t VIDEORAM[4096] __attribute__((aligned(4)));
 
 i8259_s i8259 __attribute__((aligned(4))) = {

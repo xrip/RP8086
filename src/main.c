@@ -12,6 +12,7 @@
 #include "hardware/uart16550.h"
 #if PICO_RP2350
 #include <hardware/structs/qmi.h>
+#include <hardware/structs/xip.h>
 #endif
 
 
@@ -135,6 +136,82 @@ static void pic_init(void) {
     }
 }
 
+void __no_inline_not_in_flash_func(psram_init)(uint cs_pin) {
+    gpio_set_function(cs_pin, GPIO_FUNC_XIP_CS1);
+
+    // Enable direct mode, PSRAM CS, clkdiv of 10
+    qmi_hw->direct_csr = 10 << QMI_DIRECT_CSR_CLKDIV_LSB |
+                         QMI_DIRECT_CSR_EN_BITS |
+                         QMI_DIRECT_CSR_AUTO_CS1N_BITS;
+
+    while (qmi_hw->direct_csr & QMI_DIRECT_CSR_BUSY_BITS) {
+        tight_loop_contents();
+    }
+
+    // Enable QPI mode on the PSRAM
+    const uint CMD_QPI_EN = 0x35;
+    qmi_hw->direct_tx = QMI_DIRECT_TX_NOPUSH_BITS | CMD_QPI_EN;
+
+    while (qmi_hw->direct_csr & QMI_DIRECT_CSR_BUSY_BITS) {
+        tight_loop_contents();
+    }
+
+    // Set PSRAM timing
+    constexpr int max_psram_freq = PSRAM_FREQ_MHZ;
+    const int clock_hz = clock_get_hz(clk_sys);
+    int divisor = (clock_hz + max_psram_freq - 1) / max_psram_freq;
+
+    if (divisor == 1 && clock_hz > 100000000) {
+        divisor = 2;
+    }
+
+    int rxdelay = divisor;
+    if (clock_hz / divisor > 100000000) {
+        rxdelay += 1;
+    }
+
+    // Calculate timing parameters
+    const int clock_period_fs = 1000000000000000ll / clock_hz;
+    const int max_select = (125 * 1000000) / clock_period_fs;  // 125 = 8000ns / 64
+    const int min_deselect = (18 * 1000000 + (clock_period_fs - 1)) / clock_period_fs - (divisor + 1) / 2;
+
+    qmi_hw->m[1].timing = 1 << QMI_M1_TIMING_COOLDOWN_LSB |
+                          QMI_M1_TIMING_PAGEBREAK_VALUE_1024 << QMI_M1_TIMING_PAGEBREAK_LSB |
+                          max_select << QMI_M1_TIMING_MAX_SELECT_LSB |
+                          min_deselect << QMI_M1_TIMING_MIN_DESELECT_LSB |
+                          rxdelay << QMI_M1_TIMING_RXDELAY_LSB |
+                          divisor << QMI_M1_TIMING_CLKDIV_LSB;
+
+    // Set PSRAM read format
+    qmi_hw->m[1].rfmt = QMI_M0_RFMT_PREFIX_WIDTH_VALUE_Q << QMI_M0_RFMT_PREFIX_WIDTH_LSB |
+                        QMI_M0_RFMT_ADDR_WIDTH_VALUE_Q << QMI_M0_RFMT_ADDR_WIDTH_LSB |
+                        QMI_M0_RFMT_SUFFIX_WIDTH_VALUE_Q << QMI_M0_RFMT_SUFFIX_WIDTH_LSB |
+                        QMI_M0_RFMT_DUMMY_WIDTH_VALUE_Q << QMI_M0_RFMT_DUMMY_WIDTH_LSB |
+                        QMI_M0_RFMT_DATA_WIDTH_VALUE_Q << QMI_M0_RFMT_DATA_WIDTH_LSB |
+                        QMI_M0_RFMT_PREFIX_LEN_VALUE_8 << QMI_M0_RFMT_PREFIX_LEN_LSB |
+                        6 << QMI_M0_RFMT_DUMMY_LEN_LSB;
+
+    qmi_hw->m[1].rcmd = 0xEB;
+
+    // Set PSRAM write format
+    qmi_hw->m[1].wfmt = QMI_M0_WFMT_PREFIX_WIDTH_VALUE_Q << QMI_M0_WFMT_PREFIX_WIDTH_LSB |
+                        QMI_M0_WFMT_ADDR_WIDTH_VALUE_Q << QMI_M0_WFMT_ADDR_WIDTH_LSB |
+                        QMI_M0_WFMT_SUFFIX_WIDTH_VALUE_Q << QMI_M0_WFMT_SUFFIX_WIDTH_LSB |
+                        QMI_M0_WFMT_DUMMY_WIDTH_VALUE_Q << QMI_M0_WFMT_DUMMY_WIDTH_LSB |
+                        QMI_M0_WFMT_DATA_WIDTH_VALUE_Q << QMI_M0_WFMT_DATA_WIDTH_LSB |
+                        QMI_M0_WFMT_PREFIX_LEN_VALUE_8 << QMI_M0_WFMT_PREFIX_LEN_LSB;
+
+    qmi_hw->m[1].wcmd = 0x38;
+
+    // Disable direct mode
+    qmi_hw->direct_csr = 0;
+
+    // Enable writes to PSRAM
+    hw_set_bits(&xip_ctrl_hw->ctrl, XIP_CTRL_WRITABLE_M1_BITS);
+    // detect a chip size
+}
+
+
 [[noreturn]] int main() {
 #if PICO_RP2350
     vreg_disable_voltage_limit();
@@ -142,6 +219,7 @@ static void pic_init(void) {
     busy_wait_at_least_cycles((SYS_CLK_VREG_VOLTAGE_AUTO_ADJUST_DELAY_US * (uint64_t) XOSC_HZ) / 1000000);
     qmi_hw->m[0].timing = 0x60007304; // 4x FLASH divisor
     set_sys_clock_hz(PICO_CLOCK_SPEED, true);
+    // psram_init(47);
 #else
     // Overclock to 400 MHz for maximum performance
     hw_set_bits(&vreg_and_chip_reset_hw->vreg, VREG_AND_CHIP_RESET_VREG_VSEL_BITS);
