@@ -72,8 +72,9 @@ __force_inline static uint8_t port_read8(const uint32_t address) {
             if (port61 & 0x8) {
                 r |= 0; //1 << 2; // 1 FDD
                 // r |= 0b01; // CGA 40x25
-                // r |= 0b10; // CGA 80x25
-                r |= 0x3; // MdA
+                // r |= 0x1; // CGA 80x25
+                r |= 0b10; // CGA 80x25
+                //r |= 0x3; // MdA
                 // r = 0b00111101;
             } else {
                 r |= 0x4;
