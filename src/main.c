@@ -15,11 +15,12 @@
 #include <hardware/structs/xip.h>
 #endif
 
-
+uint8_t videomode = 0;
+uint8_t cga_ports[2];
+uint8_t crtc_register[32];
 uint32_t timer_interval = 54925;
 bool ctty_mode = false;  // false = keyboard mode, true = CTTY mode
 uint8_t current_scancode = 0; // 0 = нет данных
-
 // ============================================================================
 // ASCII to Scancode (IBM PC/XT Set 1) - Simplified
 // ============================================================================
@@ -236,11 +237,12 @@ void __no_inline_not_in_flash_func(psram_init)(uint cs_pin) {
 
     absolute_time_t next_frame = get_absolute_time();
     next_frame = delayed_by_us(next_frame, 16666);
- 
-    bool video_enabled = false;
+
+
+    bool video_enabled = true;
 #if PICO_RP2350
     graphics_init();
-    graphics_set_buffer((uint8_t *)VIDEORAM, 80, 200);
+    graphics_set_buffer((uint8_t *)VIDEORAM, 320, 200);
     graphics_set_textbuffer((uint8_t *)VIDEORAM);
     graphics_set_bgcolor(0);
     graphics_set_offset(0, 0);
@@ -249,20 +251,29 @@ void __no_inline_not_in_flash_func(psram_init)(uint cs_pin) {
     busy_wait_us(33);
     graphics_set_mode(TEXTMODE_80x25_BW);
 #endif
+
+    uint8_t old_videomode = 0;
     while (true) {
         // Отрисовка MDA фреймбуфера
         if (video_enabled && absolute_time_diff_us(next_frame, get_absolute_time()) >= 0) {
             next_frame = delayed_by_us(next_frame, 16666 * 2);
 
+            if (videomode != old_videomode) {
+                graphics_set_mode(videomode ? CGA_320x200x4 : TEXTMODE_80x25_BW);
+                old_videomode = videomode;
+            }
+
             printf("\033[H");        // cursor home
             printf("\033[2J");       // clear screen
-            printf("\033[3J");       // clear scrollback
+            // printf("\033[3J");       // clear scrollback
             printf("\033[40m");      // black background
             printf("\033[?25l");     // hide cursor (reduce flicker)
             for (int y = 0; y < 25; y++) {
                 const uint32_t *framebuffer_line = (uint32_t*) VIDEORAM + __fast_mul(y, 40);
                 for (int x = 40; x--;) {
                     const uint32_t dword = *framebuffer_line++ & 0x00FF00FF;
+                    // printf("\033[3%d;4%dm%c", dword >> 8 & 0xf, dword >> 12 & 0xf, dword & 0xFF);
+                    // printf("\033[3%d;4%dm%c", dword >> 24 & 0xf, dword >> 28 & 0xf, (dword >> 16) & 0xFF);
                     putchar_raw(dword);
                     putchar_raw(dword >> 16);
                 }
@@ -280,6 +291,13 @@ void __no_inline_not_in_flash_func(psram_init)(uint cs_pin) {
         // Special debug commands (uppercase variants)
         if (c == '`') {
             video_enabled = !video_enabled;
+
+        } else if (c == 'P') {
+            for (int i =0; i < 31; i++) {
+                printf("%d: %x\n", i, crtc_register[i]);
+            }
+
+            printf("\n\n CGA regs: 0x%02x 0x%02x\n\n", cga_ports[0], cga_ports[1]);
         } else if (c == 'C') {
             // Переключение между keyboard и CTTY режимами
             ctty_mode = !ctty_mode;

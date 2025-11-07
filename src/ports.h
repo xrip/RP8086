@@ -24,11 +24,25 @@ static uint8_t keyboard_last_command = 0;
 static uint8_t keyboard_response_buffer = 0;
 static bool keyboard_has_response = false;
 
+static uint8_t crtc_index = 0;
+extern uint8_t crtc_register[32];
+extern uint8_t cga_ports[2];
+extern uint8_t videomode;
+
 __force_inline static uint8_t port_read8(const uint32_t address) {
+    // if (address >= 0x300)
     // printf("port read %03x\n", address);
     switch (address) {
+        case 0x3D4:
+            return crtc_index;
+        case 0x3D5:
+            return crtc_register[crtc_index];
+        case 0x3D8:
+        case 0x3D9:
+            return cga_ports[address & 1];
         case 0x3DA:
-        case 0x3BA: {
+
+            {
             // MDA status port
 #if RP2350
             return port3DA;
@@ -72,10 +86,8 @@ __force_inline static uint8_t port_read8(const uint32_t address) {
             if (port61 & 0x8) {
                 r |= 0; //1 << 2; // 1 FDD
                 // r |= 0b01; // CGA 40x25
-                // r |= 0x1; // CGA 80x25
                 r |= 0b10; // CGA 80x25
-                //r |= 0x3; // MdA
-                // r = 0b00111101;
+                //r |= 0b11; // MdA
             } else {
                 r |= 0x4;
             }
@@ -177,6 +189,18 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
         case 0x87: {
             return i8237_writepage(address, data);
         }
+        case 0x3D4:
+            crtc_index = data;
+            break;
+        case 0x3D5:
+            crtc_register[crtc_index] = data;
+            break;
+        case 0x3D8:
+            videomode = (data & 0b10) == 0b10;
+        case 0x3D9:
+            cga_ports[address & 1] = data;
+            return;
+
         case 0x3F2: case 0x3F5: {
             return i8272_writeport(address, data);
         }

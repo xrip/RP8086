@@ -20,7 +20,7 @@ __force_inline static uint16_t memory_read(const uint32_t address) {
     }
 
     // Video RAM: MDA 0xB0000-0xB0FFF (4KB)
-    if ((address - 0xB0000) < 0x7FFF) {
+    if ((address - 0xB0000) < 0x8000) {
         return *(uint16_t *)&VIDEORAM[address & 0x3FFF];
     }
 
@@ -44,7 +44,7 @@ __force_inline static void memory_write(const uint32_t address, const uint16_t d
     }
 
     // Video RAM: MDA 0xB0000-0xB0FFF (4KB)
-    if ((address - 0xB8000) < 0x7FFF) {
+    if ((address - 0xB8000) < 0x8000) {
         write_to(VIDEORAM, address & 0x3FFF, data, bhe);
         return;
     }
