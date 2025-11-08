@@ -137,7 +137,7 @@ static void pic_init(void) {
     }
 }
 
-void __no_inline_not_in_flash_func(psram_init)(uint cs_pin) {
+void psram_init(const int cs_pin) {
     gpio_set_function(cs_pin, GPIO_FUNC_XIP_CS1);
 
     // Enable direct mode, PSRAM CS, clkdiv of 10
@@ -150,7 +150,7 @@ void __no_inline_not_in_flash_func(psram_init)(uint cs_pin) {
     }
 
     // Enable QPI mode on the PSRAM
-    const uint CMD_QPI_EN = 0x35;
+    constexpr uint CMD_QPI_EN = 0x35;
     qmi_hw->direct_tx = QMI_DIRECT_TX_NOPUSH_BITS | CMD_QPI_EN;
 
     while (qmi_hw->direct_csr & QMI_DIRECT_CSR_BUSY_BITS) {
@@ -211,6 +211,43 @@ void __no_inline_not_in_flash_func(psram_init)(uint cs_pin) {
     hw_set_bits(&xip_ctrl_hw->ctrl, XIP_CTRL_WRITABLE_M1_BITS);
     // detect a chip size
 }
+const uint32_t cga_palette[16] = {
+    //R, G, B
+    0x000000, // 0 black
+    0x0000C4, // 1 blue
+    0x00C400, // 2 green
+    0x00C4C4, // 3 cyan
+    0xC40000, // 4 red
+    0xC400C4, // 5 magenta
+    0xC47E00, // 7 brown
+    0xC4C4C4, // 8 light gray
+    0x4E4E4E, // 9 dark gray
+    0x4E4EDC, // 10 light blue
+    0x4EDC4E, // 11 light green
+    0x4EF3F3, // 12 light cyan
+    0xDC4E4E, // 13 light red
+    0xF34EF3, // 14 light magenta
+    0xF3F34E, // 15 yellow
+    0xFFFFFF //  16 white
+};
+
+
+const uint8_t cga_gfxpal[3][2][4] = {
+    //palettes for 320x200 graphics mode
+    {
+        { 0, 2, 4, 6 }, //normal palettes
+        { 0, 10, 12, 14 }, //intense palettes
+},
+{
+                    { 0, 3, 5, 7 },
+                    { 0, 11, 13, 15 },
+            },
+            {
+                // the unofficial Mode 5 palette, accessed by disabling ColorBurst
+                    { 0, 3, 4, 7 },
+                    { 0, 11, 12, 15 },
+            },
+    };
 
 
 [[noreturn]] int main() {
@@ -220,7 +257,7 @@ void __no_inline_not_in_flash_func(psram_init)(uint cs_pin) {
     busy_wait_at_least_cycles((SYS_CLK_VREG_VOLTAGE_AUTO_ADJUST_DELAY_US * (uint64_t) XOSC_HZ) / 1000000);
     qmi_hw->m[0].timing = 0x60007304; // 4x FLASH divisor
     set_sys_clock_hz(PICO_CLOCK_SPEED, true);
-    // psram_init(47);
+    psram_init(47);
 #else
     // Overclock to 400 MHz for maximum performance
     hw_set_bits(&vreg_and_chip_reset_hw->vreg, VREG_AND_CHIP_RESET_VREG_VSEL_BITS);
@@ -250,6 +287,9 @@ void __no_inline_not_in_flash_func(psram_init)(uint cs_pin) {
     graphics_set_mode(CGA_320x200x4);
     busy_wait_us(33);
     graphics_set_mode(TEXTMODE_80x25_BW);
+    for (int i = 0; i < 16; i++) {
+        graphics_set_palette(i, cga_palette[i]);
+    }
 #endif
 
     uint8_t old_videomode = 0;
@@ -259,7 +299,20 @@ void __no_inline_not_in_flash_func(psram_init)(uint cs_pin) {
             next_frame = delayed_by_us(next_frame, 16666 * 2);
 
             if (videomode != old_videomode) {
-                graphics_set_mode(videomode ? CGA_320x200x4 : TEXTMODE_80x25_BW);
+                if (!videomode) {
+                    for (int i = 0; i < 16; i++) {
+                        graphics_set_palette(i, cga_palette[i]);
+                    }
+                    graphics_set_mode(TEXTMODE_80x25_BW);
+                } else {
+                    for (uint8_t i = 0; i < 4; i++) {
+                        graphics_set_palette(i, cga_palette[cga_gfxpal[1][0][i]]);
+                    }
+
+                    graphics_set_mode(CGA_320x200x4);
+
+                }
+
                 old_videomode = videomode;
             }
 

@@ -19,7 +19,7 @@
 #define PICO_CLOCK_SPEED     (500 * MHZ)  // Raspberry Pi Pico clock frequency
 #define PSRAM_FREQ_MHZ (166* MHZ)
 #define I8086_CLOCK_SPEED    (4750 * KHZ)  // i8086 clock frequency
-#define RAM_SIZE               ((512-96) * 1024)                       // 192KB RAM (maximum that fits)
+#define RAM_SIZE               (736 * 1024)                       // 192KB RAM (maximum that fits)
 #else
 #define PICO_CLOCK_SPEED     (400 * MHZ)  // Raspberry Pi Pico clock frequency
 
