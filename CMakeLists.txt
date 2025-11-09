@@ -37,6 +37,7 @@ add_subdirectory(drivers/vga-nextgen)
 target_link_libraries(${PROJECT_NAME} PRIVATE vga-nextgen)
 message(STATUS "VGA display enabled")
 
+
 pico_define_boot_stage2(slower_boot ${PICO_DEFAULT_BOOT_STAGE2_FILE})
 target_compile_definitions(slower_boot PRIVATE PICO_FLASH_SPI_CLKDIV=4)
 pico_set_boot_stage2(${PROJECT_NAME} slower_boot)

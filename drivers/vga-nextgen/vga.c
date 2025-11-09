@@ -24,7 +24,7 @@ const struct pio_program pio_program_VGA = {
 };
 
 extern int cursor_blink_state;
-static uint32_t *lines_pattern[4];
+static uint32_t *lines_pattern[4] __attribute__((aligned(4))) = {0};
 static uint32_t *lines_pattern_data = NULL;
 static int _SM_VGA = -1;
 
@@ -99,7 +99,7 @@ void __time_critical_func() dma_handler_VGA() {
 
     if (screen_line >= N_lines_visible) {
         port3DA = 8; // useful frame is finished
-        //заполнение цветом фона
+        /*//заполнение цветом фона
         if (screen_line == N_lines_visible | screen_line == N_lines_visible + 3) {
             uint32_t *output_buffer_32bit = lines_pattern[2 + (screen_line & 1)];
             output_buffer_32bit += shift_picture / 4;
@@ -108,7 +108,7 @@ void __time_critical_func() dma_handler_VGA() {
             for (int i = visible_line_size / 2; i--;) {
                 *output_buffer_32bit++ = color32;
             }
-        }
+        }*/
 
         //синхросигналы
         if (screen_line >= line_VS_begin && screen_line <= line_VS_end)
@@ -120,11 +120,12 @@ void __time_critical_func() dma_handler_VGA() {
     }
 
     port3DA = 0; // activated output
+#if 0
     if (!graphics_framebuffer) {
         dma_channel_set_read_addr(dma_channel_control, &lines_pattern[0], false);
         return;
     } //если нет видеобуфера - рисуем пустую строку
-
+#endif
 
     uint32_t * *output_buffer = &lines_pattern[2 + (screen_line & 1)];
     uint16_t *__restrict output_buffer_16bit = (uint16_t *) (*output_buffer) + shift_picture / 2;
@@ -133,7 +134,7 @@ void __time_critical_func() dma_handler_VGA() {
         case TEXTMODE_80x25_COLOR:
         case TEXTMODE_80x25_BW: {
             // "слой" символа
-            uint8_t y_div_16 = screen_line / 16;
+            const uint8_t y_div_16 = screen_line / 16;
             const uint8_t glyph_line = screen_line & 15;
 
             //указатель откуда начать считывать символы
@@ -186,7 +187,6 @@ void __time_critical_func() dma_handler_VGA() {
     // Индекс палитры в зависимости от настроек чередования строк и кадров
     const uint16_t *current_palette = palette[(y & is_flash_line)];
 
-    uint8_t *output_buffer_8bit;
     switch (graphics_mode) {
         case CGA_320x200x4:
         case CGA_320x200x4_BW: {

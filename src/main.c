@@ -315,7 +315,6 @@ const uint8_t cga_gfxpal[3][2][4] = {
 
                 old_videomode = videomode;
             }
-
             printf("\033[H");        // cursor home
             printf("\033[2J");       // clear screen
             // printf("\033[3J");       // clear scrollback
