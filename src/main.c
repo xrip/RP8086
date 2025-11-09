@@ -16,10 +16,10 @@
 #endif
 
 uint8_t videomode = 0;
-uint8_t cga_ports[2];
+uint8_t cga_register[2];
 uint8_t crtc_register[32];
 uint32_t timer_interval = 54925;
-bool ctty_mode = false;  // false = keyboard mode, true = CTTY mode
+bool ctty_mode = false; // false = keyboard mode, true = CTTY mode
 uint8_t current_scancode = 0; // 0 = нет данных
 // ============================================================================
 // ASCII to Scancode (IBM PC/XT Set 1) - Simplified
@@ -173,7 +173,7 @@ void psram_init(const int cs_pin) {
 
     // Calculate timing parameters
     const int clock_period_fs = 1000000000000000ll / clock_hz;
-    const int max_select = (125 * 1000000) / clock_period_fs;  // 125 = 8000ns / 64
+    const int max_select = (125 * 1000000) / clock_period_fs; // 125 = 8000ns / 64
     const int min_deselect = (18 * 1000000 + (clock_period_fs - 1)) / clock_period_fs - (divisor + 1) / 2;
 
     qmi_hw->m[1].timing = 1 << QMI_M1_TIMING_COOLDOWN_LSB |
@@ -211,6 +211,7 @@ void psram_init(const int cs_pin) {
     hw_set_bits(&xip_ctrl_hw->ctrl, XIP_CTRL_WRITABLE_M1_BITS);
     // detect a chip size
 }
+
 const uint32_t cga_palette[16] = {
     //R, G, B
     0x000000, // 0 black
@@ -231,23 +232,23 @@ const uint32_t cga_palette[16] = {
     0xFFFFFF //  16 white
 };
 
-
+// Pallete, intensity, color_index from cga_palette
 const uint8_t cga_gfxpal[3][2][4] = {
     //palettes for 320x200 graphics mode
     {
-        { 0, 2, 4, 6 }, //normal palettes
-        { 0, 10, 12, 14 }, //intense palettes
-},
-{
-                    { 0, 3, 5, 7 },
-                    { 0, 11, 13, 15 },
-            },
-            {
-                // the unofficial Mode 5 palette, accessed by disabling ColorBurst
-                    { 0, 3, 4, 7 },
-                    { 0, 11, 12, 15 },
-            },
-    };
+        {0, 2, 4, 6}, //normal palettes
+        {0, 10, 12, 14}, //intense palettes
+    },
+    {
+        {0, 3, 5, 7},
+        {0, 11, 13, 15},
+    },
+    {
+        // the unofficial Mode 5 palette, accessed by disabling ColorBurst
+        {0, 3, 4, 7},
+        {0, 11, 12, 15},
+    },
+};
 
 
 [[noreturn]] int main() {
@@ -264,7 +265,7 @@ const uint8_t cga_gfxpal[3][2][4] = {
     busy_wait_at_least_cycles((SYS_CLK_VREG_VOLTAGE_AUTO_ADJUST_DELAY_US * (uint64_t) XOSC_HZ) / 1000000);
     set_sys_clock_hz(PICO_CLOCK_SPEED, true);
 
-    #endif
+#endif
     // busy_wait_ms(250); // Даем время стабилизироваться напряжению
     stdio_usb_init();
     while (!stdio_usb_connected()) { tight_loop_contents(); }
@@ -279,8 +280,8 @@ const uint8_t cga_gfxpal[3][2][4] = {
     bool video_enabled = true;
 #if PICO_RP2350
     graphics_init();
-    graphics_set_buffer((uint8_t *)VIDEORAM, 320, 200);
-    graphics_set_textbuffer((uint8_t *)VIDEORAM);
+    graphics_set_buffer((uint8_t *) VIDEORAM, 320, 200);
+    graphics_set_textbuffer((uint8_t *) VIDEORAM);
     graphics_set_bgcolor(0);
     graphics_set_offset(0, 0);
     graphics_set_flashmode(true, true);
@@ -299,29 +300,34 @@ const uint8_t cga_gfxpal[3][2][4] = {
             next_frame = delayed_by_us(next_frame, 16666 * 2);
 
             if (videomode != old_videomode) {
-                if (!videomode) {
+                if (videomode < 4) {
                     for (int i = 0; i < 16; i++) {
                         graphics_set_palette(i, cga_palette[i]);
                     }
-                    graphics_set_mode(TEXTMODE_80x25_BW);
-                } else {
-                    for (uint8_t i = 0; i < 4; i++) {
-                        graphics_set_palette(i, cga_palette[cga_gfxpal[1][0][i]]);
+                } else if (videomode < 6) {
+                    const uint8_t intensity = (cga_register[1] >> 4) & 1 ;
+                    // If colorburst set -- 3rd palette, else from palette register
+                    const uint8_t palette = cga_register[0] & 4 ? 2 :(cga_register[1] >> 3 & 1);
+
+                    graphics_set_palette(0, cga_palette[cga_register[1] & 0b1111]);
+
+                    for (uint8_t i = 1; i < 4; i++) {
+                        graphics_set_palette(i, cga_palette[cga_gfxpal[palette][intensity][i]]);
                     }
-
-                    graphics_set_mode(CGA_320x200x4);
-
+                } else if (videomode == 6) {
+                    graphics_set_palette(0, cga_palette[0]);
+                    graphics_set_palette(1, cga_palette[cga_register[1] & 0b1111]);
                 }
-
+                graphics_set_mode(videomode);
                 old_videomode = videomode;
             }
-            printf("\033[H");        // cursor home
-            printf("\033[2J");       // clear screen
+            printf("\033[H"); // cursor home
+            printf("\033[2J"); // clear screen
             // printf("\033[3J");       // clear scrollback
-            printf("\033[40m");      // black background
-            printf("\033[?25l");     // hide cursor (reduce flicker)
+            printf("\033[40m"); // black background
+            printf("\033[?25l"); // hide cursor (reduce flicker)
             for (int y = 0; y < 25; y++) {
-                const uint32_t *framebuffer_line = (uint32_t*) VIDEORAM + __fast_mul(y, 40);
+                const uint32_t *framebuffer_line = (uint32_t *) VIDEORAM + __fast_mul(y, 40);
                 for (int x = 40; x--;) {
                     const uint32_t dword = *framebuffer_line++ & 0x00FF00FF;
                     // printf("\033[3%d;4%dm%c", dword >> 8 & 0xf, dword >> 12 & 0xf, dword & 0xFF);
@@ -343,13 +349,12 @@ const uint8_t cga_gfxpal[3][2][4] = {
         // Special debug commands (uppercase variants)
         if (c == '`') {
             video_enabled = !video_enabled;
-
         } else if (c == 'P') {
-            for (int i =0; i < 31; i++) {
+            for (int i = 0; i < 31; i++) {
                 printf("%d: %x\n", i, crtc_register[i]);
             }
 
-            printf("\n\n CGA regs: 0x%02x 0x%02x\n\n", cga_ports[0], cga_ports[1]);
+            printf("\n\n CGA regs: 0x%02x 0x%02x\n\n", cga_register[0], cga_register[1]);
         } else if (c == 'C') {
             // Переключение между keyboard и CTTY режимами
             ctty_mode = !ctty_mode;
@@ -444,7 +449,7 @@ const uint8_t cga_gfxpal[3][2][4] = {
             // ═══════════════════════════════════════════════════════
             if (ctty_mode) {
                 // CTTY Mode: USB → UART RBR → DOS
-                uart.rbr = (uint8_t)c;
+                uart.rbr = (uint8_t) c;
                 uart.data_ready = true;
             } else {
                 // Keyboard Mode: USB → Scancode → i8086

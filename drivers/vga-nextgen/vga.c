@@ -6,6 +6,7 @@
 #include "hardware/pio.h"
 #include <string.h>
 #include <stdio.h>
+#include <arm_acle.h>
 
 #include <stdlib.h>
 uint16_t pio_program_VGA_instructions[] = {
@@ -192,7 +193,7 @@ void __time_critical_func() dma_handler_VGA() {
         case CGA_320x200x4_BW: {
             const uint32_t *__restrict cga_row = (uint32_t*) (VIDEORAM + __fast_mul(y >> 1, 80) + ((y & 1) << 13));
 
-            //2bit buf
+            // 2bit buf, 16 pixels at once
             for (int x = 20; x--;) {
                 const uint32_t dword = *cga_row++;
 
@@ -222,7 +223,21 @@ void __time_critical_func() dma_handler_VGA() {
             }
             break;
         }
+        case CGA_640x200x2: {
+            const uint32_t *__restrict cga_row = (uint32_t*) (VIDEORAM + __fast_mul(y >> 1, 80) + ((y & 1) << 13));
+            auto output_buffer_8bit = (uint8_t *) output_buffer_16bit;
+            //1bit buf, 32 pixels at once
+            for (int x = 20; x--;) {
+                uint32_t dword = __rbit(__rev(*cga_row++));
 
+                #pragma GCC unroll(32)
+                for (int i = 32; i--;) {
+                    *output_buffer_8bit++ = current_palette[dword & 1];
+                    dword >>= 1;
+                }
+            }
+            break;
+        }
         default:
             const uint8_t *vga_row = &VIDEORAM[__fast_mul(y, 80)];
             for (int x = 80; x--;) {

@@ -7,6 +7,7 @@
 #include "hardware/i8259.h"
 #include "hardware/i8272.h"
 #include "hardware/uart16550.h"
+#include "graphics.h"
 // ============================================================================
 // External Port Arrays and Variables
 // ============================================================================
@@ -26,7 +27,7 @@ static bool keyboard_has_response = false;
 
 static uint8_t crtc_index = 0;
 extern uint8_t crtc_register[32];
-extern uint8_t cga_ports[2];
+extern uint8_t cga_register[2];
 extern uint8_t videomode;
 
 __force_inline static uint8_t port_read8(const uint32_t address) {
@@ -39,7 +40,7 @@ __force_inline static uint8_t port_read8(const uint32_t address) {
             return crtc_register[crtc_index];
         case 0x3D8:
         case 0x3D9:
-            return cga_ports[address & 1];
+            return cga_register[address & 1];
         case 0x3DA:
 
             {
@@ -195,10 +196,32 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
         case 0x3D5:
             crtc_register[crtc_index] = data;
             break;
-        case 0x3D8:
-            videomode = (data & 0b10) == 0b10;
+        case 0x3D8: {
+            cga_register[0] = data; // Store the raw register value
+
+            if (data & 0b10) { // Bit 1: Graphics/Text Select
+                // Graphics Mode
+                if (data & 0b10000) { // Bit 4: 640x200 vs 320x200
+                    // 640x200 B/W Graphics
+                    videomode = CGA_640x200x2;
+                } else {
+                    // 320x200 Color Graphics
+                    videomode  = CGA_320x200x4;
+                }
+            } else {
+                // Text Mode
+                if (data & 1) { // Bit 0: 40/80 Column Select
+                    // 40x25 Text
+                    videomode = TEXTMODE_80x25_COLOR;
+                } else {
+                    // 80x25 Text
+                    videomode = TEXTMODE_40x25_COLOR;
+                }
+            }
+            return;
+        }
         case 0x3D9:
-            cga_ports[address & 1] = data;
+            cga_register[1] = data;
             return;
 
         case 0x3F2: case 0x3F5: {
