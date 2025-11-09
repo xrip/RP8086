@@ -306,3 +306,85 @@ When user requests commit:
 2. Draft concise commit message in Russian
 3. Ask for approval before executing commit
 4. Never use `--no-verify` or skip hooks
+
+## Hardware Specifications Summary
+
+This section provides a summary of the hardware components as described in the `docs/specs/` directory. This information is crucial for understanding the emulated hardware environment.
+
+### `intel_8086_specs.toon`: Intel 8086 CPU
+- **Architecture**: 16-bit, 1MB address space (20 address lines).
+- **Registers**: AX, BX, CX, DX, SP, BP, SI, DI, CS, DS, ES, SS, IP, FLAGS.
+- **Interrupts**: Maskable (INTR) and Non-Maskable (NMI).
+- **Reset Vector**: `0xFFFF0`.
+
+### `bus.toon`: PC/XT/AT ISA Bus
+- **Structure**: 8-bit and 16-bit variants.
+- **Signals**: Address (A0-A23), Data (D0-D15), Interrupts (IRQ2-IRQ7), DMA (DRQ0-DRQ3, DACK0-DACK3), Memory/IO control.
+
+### `i8086_architecture_reference.toon`: System Architecture
+- **Overview**: Details the interaction between the 8086 and the IBM PC chipset.
+- **Memory Map**: Defines locations for ROM BIOS (`0xF0000-0xFFFFF`), Video RAM (`0xB0000`/`0xB8000`), and Conventional RAM (`0x00000-0x9FFFF`).
+- **I/O System**: Maps out ports for DMA, PIC, PIT, Keyboard, FDC, etc.
+- **Interrupts**: Defines IRQ assignments (IRQ0: Timer, IRQ1: Keyboard, IRQ6: Floppy).
+- **DMA**: Details usage of the 8237A controller and its channels.
+- **Boot Sequence**: Power-On -> BIOS POST -> INT 19h -> Boot Sector Load.
+
+### `port_addresses.toon`: I/O Port Map
+- A comprehensive list of standard I/O port addresses.
+- **DMA (8237A)**: `0x000-0x00F`
+- **PIC (8259A Master)**: `0x020-0x02F`
+- **PIT (8253)**: `0x040-0x05F`
+- **Keyboard (8042)**: `0x060-0x06F`
+- **CMOS/RTC**: `0x070-0x071`
+- **FDC (8272A)**: `0x3F0-0x3F7`
+- **MDA**: `0x3B0-0x3BF`
+- **CGA**: `0x3D0-0x3DF`
+- **Serial (COM1)**: `0x3F8-0x3FF`
+
+### `intel_8259a_specs.toon` / `8259_pic.toon`: 8259A PIC
+- **Function**: Manages hardware interrupts.
+- **Ports**: Master at `0x20-0x21`, Slave at `0xA0-0xA1`.
+- **Configuration**: Programmed via Initialization Command Words (ICW1-4) and operated with Operation Control Words (OCW1-3).
+
+### `intel_8253_specs.toon` / `8253_pit.toon`: 8253 PIT
+- **Function**: System timing.
+- **Ports**: `0x40-0x43`.
+- **Channels**:
+    - **Counter 0**: System Timer (~18.2 Hz), connected to IRQ0.
+    - **Counter 1**: DRAM Refresh.
+    - **Counter 2**: Speaker tones.
+
+### `intel_8237a_specs.toon`: 8237A DMA Controller
+- **Function**: Direct Memory Access.
+- **Ports**: `0x00-0x0F` and page registers at `0x81-0x87`.
+- **Channels**:
+    - **Channel 0**: DRAM Refresh.
+    - **Channel 2**: Floppy Disk Controller.
+    - **Channel 3**: Hard Disk Controller.
+
+### `intel_8272a_specs.toon` / `765_fdc.toon`: 8272A FDC
+- **Function**: Floppy Disk Control.
+- **Ports**: `0x3F0-0x3F7`.
+- **Integration**: Uses DMA Channel 2 and IRQ6.
+- **Commands**: `Read Data`, `Write Data`, `Format Track`, `Seek`, etc.
+
+### `8042_keyboard_controller.toon` & `keyboard_commands.toon`: Keyboard Controller
+- **Function**: Manages keyboard input.
+- **Ports**: Data at `0x60`, Status/Command at `0x64`.
+- **Communication**: System sends commands (`ED`, `F4`, `FF`), keyboard sends responses (`AA`, `FA`) and scancodes.
+
+### `cmos_rtc.toon`: CMOS RTC
+- **Function**: Real-Time Clock and non-volatile configuration memory.
+- **Ports**: Address at `0x70`, Data at `0x71`.
+- **Data**: Stores time, date, and hardware configuration (disk types, memory size, etc.).
+
+### `6845_crtc.toon`: 6845 CRTC
+- **Function**: Video generation for Monochrome (MDA) and Color (CGA) adapters.
+- **Ports**: MDA at `0x3B0-0x3BB`, CGA at `0x3D0-0x3DC`.
+- **Registers**: Controls video timings, cursor, and display parameters.
+
+### `pc16550d_spec.toon` / `uart.toon`: UART
+- **Function**: Serial communication (COM ports).
+- **Ports**: COM1 at `0x3F8-0x3FF`.
+- **Features**: The 16550D model includes 16-byte FIFOs for improved performance.
+- **Registers**: LCR (Line Control), IER (Interrupt Enable), LSR (Line Status), etc.
