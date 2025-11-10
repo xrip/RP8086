@@ -43,7 +43,7 @@ __force_inline static void memory_write(const uint32_t address, const uint16_t d
         return;
     }
 
-    // Video RAM: MDA 0xB0000-0xB0FFF (4KB)
+    // Video RAM: CGA 0xB8000-0xBFFFF (32KB)
     if ((address - 0xB8000) < 0x8000) {
         write_to(VIDEORAM, address & 0x3FFF, data, bhe);
         return;
