@@ -299,11 +299,11 @@ constexpr uint8_t cga_gfxpal[3][2][4] = {
             next_frame = delayed_by_us(next_frame, 16666 * 2);
 
             if (cga.updated) {
-                if (cga.port3D8 & 0b10) { // Bit 1: Graphics/Text Select
+                if (unlikely(cga.port3D8 & 0b10)) { // Bit 1: Graphics/Text Select
                     if (unlikely(cga.port3D8 & 0b10000)) {
                         videomode = CGA_640x200x2;
 
-                        graphics_set_palette(0, cga_palette[0]);
+                        graphics_set_palette(0, 0);
                         graphics_set_palette(1, cga_palette[cga.port3D9 & 0b1111]);
                     } else {
                         videomode = CGA_320x200x4;
