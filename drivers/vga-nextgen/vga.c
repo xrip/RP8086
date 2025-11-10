@@ -71,6 +71,13 @@ static int txt_palette_init = 0;
 
 enum graphics_mode_t graphics_mode;
 
+
+__force_inline static uint32_t expand16to32(const uint16_t value) {
+    // Преобразует 0xAABB → 0xBBBBAAAA
+    uint32_t r = value;
+    r = ((r >> 8) | (r << 8)) & 0x00FF00FF; // поменяли местами байты
+    return (r << 8) | r;                    // дублируем каждый
+}
 // Spread 8 bits of a byte into positions 0,4,8,...28
 static inline uint32_t spread8(uint32_t plane) {
     plane = (plane | (plane << 12)) & 0x000F000Fu;
@@ -130,8 +137,77 @@ void __time_critical_func() dma_handler_VGA() {
 
     uint32_t * *output_buffer = &lines_pattern[2 + (screen_line & 1)];
     uint16_t *__restrict output_buffer_16bit = (uint16_t *) (*output_buffer) + shift_picture / 2;
+    auto output_buffer_32bit = (uint32_t *) output_buffer_16bit;
 
     switch (graphics_mode) {
+        case TEXTMODE_40x25_COLOR:
+        case TEXTMODE_40x25_BW: {
+            // "слой" символа
+            const uint8_t y_div_16 = screen_line / 16;
+            const uint8_t glyph_line = (screen_line / 2) & 7;
+            //указатель откуда начать считывать символы
+            const uint32_t *__restrict text_buffer_line = (uint32_t*) VIDEORAM + __fast_mul(y_div_16, 20);
+
+            for (int i = 20; i--;) {
+                uint32_t dword = *text_buffer_line++;
+
+                // первый символ
+                uint8_t glyph_pixels = font_8x8[(dword & 0xFF) * 8 + glyph_line];
+                dword >>= 8;
+                const uint16_t *palette_color = &txt_palette_fast[4 * (dword & 0xFF)];
+
+                register uint32_t hi_pix = palette_color[glyph_pixels & 3];
+                register uint32_t lo_pix = hi_pix & 0xFF; hi_pix >>= 8;
+                *output_buffer_16bit++ = (lo_pix << 8) | lo_pix;
+                *output_buffer_16bit++ = (hi_pix << 8) | hi_pix;
+                glyph_pixels >>= 2;
+                hi_pix = palette_color[glyph_pixels & 3];
+                lo_pix = hi_pix & 0xFF; hi_pix >>= 8;
+                *output_buffer_16bit++ = (lo_pix << 8) | lo_pix;
+                *output_buffer_16bit++ = (hi_pix << 8) | hi_pix;
+                glyph_pixels >>= 2;
+                hi_pix = palette_color[glyph_pixels & 3];
+                lo_pix = hi_pix & 0xFF; hi_pix >>= 8;
+                *output_buffer_16bit++ = (lo_pix << 8) | lo_pix;
+                *output_buffer_16bit++ = (hi_pix << 8) | hi_pix;
+                glyph_pixels >>= 2;
+                hi_pix = palette_color[glyph_pixels & 3];
+                lo_pix = hi_pix & 0xFF; hi_pix >>= 8;
+                *output_buffer_16bit++ = (lo_pix << 8) | lo_pix;
+                *output_buffer_16bit++ = (hi_pix << 8) | hi_pix;
+
+
+                // второй символ
+                dword >>= 8;
+                glyph_pixels = font_8x8[(dword & 0xFF) * 8 + glyph_line];
+                dword >>= 8;
+                palette_color = &txt_palette_fast[4 * dword];
+
+                hi_pix = palette_color[glyph_pixels & 3];
+                lo_pix = hi_pix & 0xFF; hi_pix >>= 8;
+                *output_buffer_16bit++ = (lo_pix << 8) | lo_pix;
+                *output_buffer_16bit++ = (hi_pix << 8) | hi_pix;
+                glyph_pixels >>= 2;
+                hi_pix = palette_color[glyph_pixels & 3];
+                lo_pix = hi_pix & 0xFF; hi_pix >>= 8;
+                *output_buffer_16bit++ = (lo_pix << 8) | lo_pix;
+                *output_buffer_16bit++ = (hi_pix << 8) | hi_pix;
+                glyph_pixels >>= 2;
+                hi_pix = palette_color[glyph_pixels & 3];
+                lo_pix = hi_pix & 0xFF; hi_pix >>= 8;
+                *output_buffer_16bit++ = (lo_pix << 8) | lo_pix;
+                *output_buffer_16bit++ = (hi_pix << 8) | hi_pix;
+                glyph_pixels >>= 2;
+                hi_pix = palette_color[glyph_pixels & 3];
+                lo_pix = hi_pix & 0xFF; hi_pix >>= 8;
+                *output_buffer_16bit++ = (lo_pix << 8) | lo_pix;
+                *output_buffer_16bit++ = (hi_pix << 8) | hi_pix;
+            }
+
+            dma_channel_set_read_addr(dma_channel_control, output_buffer, false);
+            port3DA |= 1; // no more data shown
+            return;
+        }
         case TEXTMODE_80x25_COLOR:
         case TEXTMODE_80x25_BW: {
             // "слой" символа
@@ -148,7 +224,6 @@ void __time_critical_func() dma_handler_VGA() {
                 uint8_t glyph_pixels = font_8x16[(dword & 0xFF) * 16 + glyph_line];
                 dword >>= 8;
                 const uint16_t *palette_color = &txt_palette_fast[4 * (dword & 0xFF)];
-
 
                 *output_buffer_16bit++ = palette_color[glyph_pixels & 3];
                 *output_buffer_16bit++ = palette_color[glyph_pixels >> 2 & 3];
