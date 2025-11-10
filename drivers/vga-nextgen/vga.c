@@ -151,57 +151,26 @@ void __time_critical_func() dma_handler_VGA() {
             for (int i = 20; i--;) {
                 uint32_t dword = *text_buffer_line++;
 
-                // первый символ
-                uint8_t glyph_pixels = font_8x8[(dword & 0xFF) * 8 + glyph_line];
-                dword >>= 8;
-                const uint16_t *palette_color = &txt_palette_fast[4 * (dword & 0xFF)];
+                // обработка двух символов в dword
+                for (int s = 0; s < 2; ++s) {
+                    uint8_t ch = dword & 0xFF;  // символ
+                    dword >>= 8;
+                    uint8_t palette_idx = dword & 0xFF; // индекс палитры для этого символа
+                    dword >>= 8;
 
-                register uint32_t hi_pix = palette_color[glyph_pixels & 3];
-                register uint32_t lo_pix = hi_pix & 0xFF; hi_pix >>= 8;
-                *output_buffer_16bit++ = (lo_pix << 8) | lo_pix;
-                *output_buffer_16bit++ = (hi_pix << 8) | hi_pix;
-                glyph_pixels >>= 2;
-                hi_pix = palette_color[glyph_pixels & 3];
-                lo_pix = hi_pix & 0xFF; hi_pix >>= 8;
-                *output_buffer_16bit++ = (lo_pix << 8) | lo_pix;
-                *output_buffer_16bit++ = (hi_pix << 8) | hi_pix;
-                glyph_pixels >>= 2;
-                hi_pix = palette_color[glyph_pixels & 3];
-                lo_pix = hi_pix & 0xFF; hi_pix >>= 8;
-                *output_buffer_16bit++ = (lo_pix << 8) | lo_pix;
-                *output_buffer_16bit++ = (hi_pix << 8) | hi_pix;
-                glyph_pixels >>= 2;
-                hi_pix = palette_color[glyph_pixels & 3];
-                lo_pix = hi_pix & 0xFF; hi_pix >>= 8;
-                *output_buffer_16bit++ = (lo_pix << 8) | lo_pix;
-                *output_buffer_16bit++ = (hi_pix << 8) | hi_pix;
+                    const uint16_t *palette_color = &txt_palette_fast[4 * palette_idx];
+                    uint8_t glyph_pixels = font_8x8[(ch * 8) + glyph_line];
 
-
-                // второй символ
-                dword >>= 8;
-                glyph_pixels = font_8x8[(dword & 0xFF) * 8 + glyph_line];
-                dword >>= 8;
-                palette_color = &txt_palette_fast[4 * dword];
-
-                hi_pix = palette_color[glyph_pixels & 3];
-                lo_pix = hi_pix & 0xFF; hi_pix >>= 8;
-                *output_buffer_16bit++ = (lo_pix << 8) | lo_pix;
-                *output_buffer_16bit++ = (hi_pix << 8) | hi_pix;
-                glyph_pixels >>= 2;
-                hi_pix = palette_color[glyph_pixels & 3];
-                lo_pix = hi_pix & 0xFF; hi_pix >>= 8;
-                *output_buffer_16bit++ = (lo_pix << 8) | lo_pix;
-                *output_buffer_16bit++ = (hi_pix << 8) | hi_pix;
-                glyph_pixels >>= 2;
-                hi_pix = palette_color[glyph_pixels & 3];
-                lo_pix = hi_pix & 0xFF; hi_pix >>= 8;
-                *output_buffer_16bit++ = (lo_pix << 8) | lo_pix;
-                *output_buffer_16bit++ = (hi_pix << 8) | hi_pix;
-                glyph_pixels >>= 2;
-                hi_pix = palette_color[glyph_pixels & 3];
-                lo_pix = hi_pix & 0xFF; hi_pix >>= 8;
-                *output_buffer_16bit++ = (lo_pix << 8) | lo_pix;
-                *output_buffer_16bit++ = (hi_pix << 8) | hi_pix;
+                    // генерируем 4 блока по 2-битным пикселям
+                    for (int q = 0; q < 4; ++q) {
+                        uint16_t pal = palette_color[glyph_pixels & 3];
+                        uint16_t lo = pal & 0xFF;
+                        uint16_t hi = pal >> 8;
+                        uint32_t out32 = (uint32_t)(lo << 8 | lo) | ((uint32_t)(hi << 8 | hi) << 16);
+                        *output_buffer_32bit++ = out32;
+                        glyph_pixels >>= 2;
+                    }
+                }
             }
 
             dma_channel_set_read_addr(dma_channel_control, output_buffer, false);
