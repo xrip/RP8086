@@ -1,6 +1,7 @@
 #pragma once
 #include <stdio.h>
 
+
 #include "common.h"
 #include "hardware/i8237.h"
 #include "hardware/i8253.h"
@@ -12,7 +13,7 @@
 // External Port Arrays and Variables
 // ============================================================================
 extern uint8_t current_scancode; // Keyboard scancode (defined in main.c)
-
+extern int vram_offset;
 // ============================================================================
 // Port State Variables
 // ============================================================================
@@ -192,17 +193,34 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
         case 0x87: {
             return i8237_writepage(address, data);
         }
+        case 0x3B0:
+        case 0x3B2:
+        case 0x3B4:
+        case 0x3B6:
+        case 0x3D0:
+        case 0x3D2:
         case 0x3D4:
+        case 0x3D6:
             crtc_index = data;
             break;
+        case 0x3B1:
+        case 0x3B3:
+        case 0x3B5:
+        case 0x3B7:
+        case 0x3D1:
+        case 0x3D3:
         case 0x3D5:
+        case 0x3D7:
             crtc_register[crtc_index] = data;
+            vram_offset = (((int)crtc_register[0xC] << 8) + (int)crtc_register[0xD]) << 1;
             break;
+        case 0x3B8:
         case 0x3D8: {
             cga.port3D8 = data; // Store the raw register value
             cga.updated = true;
             return;
         }
+        case 0x3BF:
         case 0x3D9:
             cga.port3D9 = data;
             cga.updated = true;

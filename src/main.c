@@ -16,6 +16,7 @@
 #endif
 extern cga_s cga;
 uint8_t videomode = 0;
+int vram_offset = 0;
 uint8_t crtc_register[32];
 uint32_t timer_interval = 54925;
 bool ctty_mode = false; // false = keyboard mode, true = CTTY mode
@@ -267,7 +268,7 @@ constexpr uint8_t cga_gfxpal[3][2][4] = {
 #endif
     // busy_wait_ms(250); // Даем время стабилизироваться напряжению
     stdio_usb_init();
-    while (!stdio_usb_connected()) { tight_loop_contents(); }
+    // while (!stdio_usb_connected()) { tight_loop_contents(); }
 
 
     multicore_launch_core1(bus_handler_core);
@@ -295,7 +296,7 @@ constexpr uint8_t cga_gfxpal[3][2][4] = {
     uint8_t old_videomode = 0;
     while (true) {
         // Отрисовка MDA фреймбуфера
-        if (video_enabled && absolute_time_diff_us(next_frame, get_absolute_time()) >= 0) {
+        if (absolute_time_diff_us(next_frame, get_absolute_time()) >= 0) {
             next_frame = delayed_by_us(next_frame, 16666 * 2);
 
             if (cga.updated) {
@@ -332,21 +333,23 @@ constexpr uint8_t cga_gfxpal[3][2][4] = {
                 cga.updated = false;
             }
 
-            printf("\033[H"); // cursor home
-            printf("\033[2J"); // clear screen
-            printf("\033[3J");       // clear scrollback
-            printf("\033[40m"); // black background
-            printf("\033[?25l"); // hide cursor (reduce flicker)
-            for (int y = 0; y < 25; y++) {
-                const uint32_t *framebuffer_line = (uint32_t *) VIDEORAM + __fast_mul(y, 40);
-                for (int x = 40; x--;) {
-                    const uint32_t dword = *framebuffer_line++ & 0x00FF00FF;
-                    putchar_raw(dword);
-                    putchar_raw(dword >> 16);
-                }
-                if (y != 24) {
-                    putchar_raw(0x0D);
-                    putchar_raw(0x0A);
+            if (video_enabled) {
+                printf("\033[H"); // cursor home
+                printf("\033[2J"); // clear screen
+                printf("\033[3J");       // clear scrollback
+                printf("\033[40m"); // black background
+                printf("\033[?25l"); // hide cursor (reduce flicker)
+                for (int y = 0; y < 25; y++) {
+                    const uint32_t *framebuffer_line = (uint32_t *) VIDEORAM + __fast_mul(y, 40);
+                    for (int x = 40; x--;) {
+                        const uint32_t dword = *framebuffer_line++ & 0x00FF00FF;
+                        putchar_raw(dword);
+                        putchar_raw(dword >> 16);
+                    }
+                    if (y != 24) {
+                        putchar_raw(0x0D);
+                        putchar_raw(0x0A);
+                    }
                 }
             }
         }

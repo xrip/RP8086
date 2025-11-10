@@ -16,6 +16,7 @@ uint16_t pio_program_VGA_instructions[] = {
 };
 
 extern uint8_t port3DA;
+extern int vram_offset;
 extern uint8_t VIDEORAM[];
 
 const struct pio_program pio_program_VGA = {
@@ -71,31 +72,6 @@ static int txt_palette_init = 0;
 
 enum graphics_mode_t graphics_mode;
 
-
-__force_inline static uint32_t expand16to32(const uint16_t value) {
-    // Преобразует 0xAABB → 0xBBBBAAAA
-    uint32_t r = value;
-    r = ((r >> 8) | (r << 8)) & 0x00FF00FF; // поменяли местами байты
-    return (r << 8) | r;                    // дублируем каждый
-}
-// Spread 8 bits of a byte into positions 0,4,8,...28
-static inline uint32_t spread8(uint32_t plane) {
-    plane = (plane | (plane << 12)) & 0x000F000Fu;
-    plane = (plane | (plane <<  6)) & 0x03030303u;
-    plane = (plane | (plane <<  3)) & 0x11111111u;
-    return plane;
-}
-
-// Merge 4 plane bytes [P3|P2|P1|P0] into 8 nibbles (pixel color indices).
-static inline uint32_t ega_pack8_from_planes(const uint32_t ega_planes) {
-    const uint32_t pixel1 = spread8(ega_planes        & 0xFFu);
-    const uint32_t pixel2 = spread8((ega_planes >> 8) & 0xFFu);
-    const uint32_t pixel3 = spread8((ega_planes >>16) & 0xFFu);
-    const uint32_t pixel4 = spread8(ega_planes >>24);
-
-    return pixel1 | pixel2 << 1 | pixel3 << 2 | pixel4 << 3;
-}
-
 void __time_critical_func() dma_handler_VGA() {
     dma_hw->ints0 = 1u << dma_channel_control;
     static uint32_t frame_number = 0;
@@ -148,7 +124,7 @@ void __time_critical_func() dma_handler_VGA() {
             const uint8_t y_div_16 = screen_line / 16;
             const uint8_t glyph_line = screen_line & 15;
             //указатель откуда начать считывать символы
-            const uint32_t *__restrict text_buffer_line = (uint32_t*) VIDEORAM + __fast_mul(y_div_16, 20);
+            const uint32_t *__restrict text_buffer_line = (uint32_t*) VIDEORAM + vram_offset + __fast_mul(y_div_16, 20);
 
             for (int i = 20; i--;) {
                 uint32_t dword = *text_buffer_line++;
@@ -186,7 +162,7 @@ void __time_critical_func() dma_handler_VGA() {
             const uint8_t glyph_line = screen_line & 15;
 
             //указатель откуда начать считывать символы
-            const uint32_t *__restrict text_buffer_line = (uint32_t*) VIDEORAM + __fast_mul(y_div_16, 40);
+            const uint32_t *__restrict text_buffer_line = (uint32_t*) VIDEORAM + vram_offset + __fast_mul(y_div_16, 40);
 
             for (int i = 40; i--;) {
                 uint32_t dword = *text_buffer_line++;
@@ -229,15 +205,12 @@ void __time_critical_func() dma_handler_VGA() {
         return;
     }
 
-    // Зона прорисовки изображения. Начальные точки буферов
-    // uint8_t *input_buffer_8bit = graphics_framebuffer + 0x8000 + ((vram_offset & 0xffff) << 1) + __fast_mul(y >> 1, 80) + ((y & 1) << 13);
-    // Индекс палитры в зависимости от настроек чередования строк и кадров
     const uint16_t *current_palette = palette[(y & is_flash_line) + (frame_number & is_flash_frame) & 1];
 
     switch (graphics_mode) {
         case CGA_320x200x4:
         case CGA_320x200x4_BW: {
-            const uint32_t *__restrict cga_row = (uint32_t*) (VIDEORAM + __fast_mul(y >> 1, 80) + ((y & 1) << 13));
+            const uint32_t *__restrict cga_row = (uint32_t*) (VIDEORAM + ((vram_offset + __fast_mul(y >> 1, 80) + ((y & 1) << 13)) & 0x3FFF));
 
             // 2bit buf, 16 pixels at once
             for (int x = 20; x--;) {
@@ -270,7 +243,7 @@ void __time_critical_func() dma_handler_VGA() {
             break;
         }
         case CGA_640x200x2: {
-            const uint32_t *__restrict cga_row = (uint32_t*) (VIDEORAM + __fast_mul(y >> 1, 80) + ((y & 1) << 13));
+            const uint32_t *__restrict cga_row = (uint32_t*) (VIDEORAM + ((vram_offset + __fast_mul(y >> 1, 80) + ((y & 1) << 13)) & 0x3FFF));
             auto output_buffer_8bit = (uint8_t *) output_buffer_16bit;
             //1bit buf, 32 pixels at once
             for (int x = 20; x--;) {
