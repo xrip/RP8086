@@ -27,9 +27,9 @@ extern i8272_s i8272;
 #define result_index       (i8272.result_index)
 #define check_drives_mask  (i8272.check_drives_mask)
 
-#define FDD_CYLINDERS 40
+#define FDD_CYLINDERS 80
 #define FDD_HEADS 2
-#define FDD_SECTORS_PER_TRACK 9
+#define FDD_SECTORS_PER_TRACK 18
 #define FDD_SECTOR_SIZE 512
 
 #define FDC_PORT_DOR  0x3F2

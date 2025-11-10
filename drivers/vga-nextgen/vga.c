@@ -60,9 +60,6 @@ static uint16_t __aligned(4) palette[2][256];
 static uint32_t bg_color[2];
 static uint16_t palette16_mask = 0;
 
-static uint8_t text_buffer_width = 80;
-static uint8_t text_buffer_height = 0;
-
 static uint16_t __aligned(4) txt_palette[16];
 
 //буфер 2К текстовой палитры для быстрой работы
@@ -269,27 +266,13 @@ void __time_critical_func() dma_handler_VGA() {
 }
 
 void graphics_set_mode(enum graphics_mode_t mode) {
-    switch (mode) {
-        case TEXTMODE_40x25_BW:
-        case TEXTMODE_40x25_COLOR:
-            text_buffer_width = 40;
-            text_buffer_height = 30;
-            break;
-        case TEXTMODE_80x25_BW:
-        case TEXTMODE_80x25_COLOR:
-        default:
-            text_buffer_width = 80;
-            text_buffer_height = 30;
-    }
-
-    //memset(graphics_buffer, 0, graphics_buffer_height * graphics_buffer_width);
     if (_SM_VGA < 0) return; // если  VGA не инициализирована -
 
     graphics_mode = mode;
 
     // Если мы уже проиницилизированы - выходим
     if (txt_palette_init && lines_pattern_data) {
-        // return;
+        return;
     };
     uint8_t TMPL_VHS8 = 0;
     uint8_t TMPL_VS8 = 0;
@@ -602,7 +585,7 @@ void graphics_init() {
     );
     //dma_channel_set_read_addr(dma_chan, &DMA_BUF_ADDR[0], false);
 
-    graphics_set_mode(TGA_320x200x16);
+    graphics_set_mode(CGA_320x200x4);
 
     irq_set_exclusive_handler(VGA_DMA_IRQ, dma_handler_VGA);
 
