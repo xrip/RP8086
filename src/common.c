@@ -20,3 +20,5 @@ uart_16550_s uart __attribute__((aligned(4))) = {
     .mcr = 0x00,
     .msr = 0xB0,  // CTS, DSR, DCD активны
 };
+
+cga_s cga __attribute__((aligned(4)));

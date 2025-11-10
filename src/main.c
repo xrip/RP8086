@@ -14,9 +14,8 @@
 #include <hardware/structs/qmi.h>
 #include <hardware/structs/xip.h>
 #endif
-
+extern cga_s cga;
 uint8_t videomode = 0;
-uint8_t cga_register[2];
 uint8_t crtc_register[32];
 uint32_t timer_interval = 54925;
 bool ctty_mode = false; // false = keyboard mode, true = CTTY mode
@@ -220,20 +219,20 @@ const uint32_t cga_palette[16] = {
     0x00C4C4, // 3 cyan
     0xC40000, // 4 red
     0xC400C4, // 5 magenta
-    0xC47E00, // 7 brown
-    0xC4C4C4, // 8 light gray
-    0x4E4E4E, // 9 dark gray
-    0x4E4EDC, // 10 light blue
-    0x4EDC4E, // 11 light green
-    0x4EF3F3, // 12 light cyan
-    0xDC4E4E, // 13 light red
-    0xF34EF3, // 14 light magenta
-    0xF3F34E, // 15 yellow
-    0xFFFFFF //  16 white
+    0xC47E00, // 6 brown
+    0xC4C4C4, // 7 light gray
+    0x4E4E4E, // 8 dark gray
+    0x4E4EDC, // 9 light blue
+    0x4EDC4E, // 10 light green
+    0x4EF3F3, // 11 light cyan
+    0xDC4E4E, // 12 light red
+    0xF34EF3, // 13 light magenta
+    0xF3F34E, // 14 yellow
+    0xFFFFFF, // 15 white
 };
 
 // Pallete, intensity, color_index from cga_palette
-const uint8_t cga_gfxpal[3][2][4] = {
+constexpr uint8_t cga_gfxpal[3][2][4] = {
     //palettes for 320x200 graphics mode
     {
         {0, 2, 4, 6}, //normal palettes
@@ -299,39 +298,49 @@ const uint8_t cga_gfxpal[3][2][4] = {
         if (video_enabled && absolute_time_diff_us(next_frame, get_absolute_time()) >= 0) {
             next_frame = delayed_by_us(next_frame, 16666 * 2);
 
-            if (videomode != old_videomode) {
-                if (videomode < 4) {
+            if (cga.updated) {
+                if (cga.port3D8 & 0b10) { // Bit 1: Graphics/Text Select
+                    if (unlikely(cga.port3D8 & 0b10000)) {
+                        videomode = CGA_640x200x2;
+
+                        graphics_set_palette(0, cga_palette[0]);
+                        graphics_set_palette(1, cga_palette[cga.port3D9 & 0b1111]);
+                    } else {
+                        videomode = CGA_320x200x4;
+                        // If colorburst set -- 3rd palette, else from palette register
+                        const uint8_t palette = (cga.port3D8 & 4) ? 2 : ((cga.port3D9 >> 5) & 1);
+                        const uint8_t intensity = (cga.port3D9 >> 4) & 1;
+
+                        graphics_set_palette(0, cga_palette[cga.port3D9 & 0b1111]);
+
+                        for (int i = 1; i < 4; i++) {
+                            graphics_set_palette(i, cga_palette[cga_gfxpal[palette][intensity][i]]);
+                        }
+                    }
+                } else {
+                    videomode = cga.port3D8 & 1 ? TEXTMODE_80x25_COLOR : TEXTMODE_40x25_COLOR;
                     for (int i = 0; i < 16; i++) {
                         graphics_set_palette(i, cga_palette[i]);
                     }
-                } else if (videomode < 6) {
-                    const uint8_t intensity = (cga_register[1] >> 4) & 1 ;
-                    // If colorburst set -- 3rd palette, else from palette register
-                    const uint8_t palette = cga_register[0] & 4 ? 2 :(cga_register[1] >> 3 & 1);
-
-                    graphics_set_palette(0, cga_palette[cga_register[1] & 0b1111]);
-
-                    for (uint8_t i = 1; i < 4; i++) {
-                        graphics_set_palette(i, cga_palette[cga_gfxpal[palette][intensity][i]]);
-                    }
-                } else if (videomode == 6) {
-                    graphics_set_palette(0, cga_palette[0]);
-                    graphics_set_palette(1, cga_palette[cga_register[1] & 0b1111]);
                 }
-                graphics_set_mode(videomode);
-                old_videomode = videomode;
+
+                if (videomode != old_videomode) {
+                    graphics_set_mode(videomode);
+                    old_videomode = videomode;
+                }
+
+                cga.updated = false;
             }
+
             printf("\033[H"); // cursor home
             printf("\033[2J"); // clear screen
-            // printf("\033[3J");       // clear scrollback
+            printf("\033[3J");       // clear scrollback
             printf("\033[40m"); // black background
             printf("\033[?25l"); // hide cursor (reduce flicker)
             for (int y = 0; y < 25; y++) {
                 const uint32_t *framebuffer_line = (uint32_t *) VIDEORAM + __fast_mul(y, 40);
                 for (int x = 40; x--;) {
                     const uint32_t dword = *framebuffer_line++ & 0x00FF00FF;
-                    // printf("\033[3%d;4%dm%c", dword >> 8 & 0xf, dword >> 12 & 0xf, dword & 0xFF);
-                    // printf("\033[3%d;4%dm%c", dword >> 24 & 0xf, dword >> 28 & 0xf, (dword >> 16) & 0xFF);
                     putchar_raw(dword);
                     putchar_raw(dword >> 16);
                 }
@@ -354,7 +363,7 @@ const uint8_t cga_gfxpal[3][2][4] = {
                 printf("%d: %x\n", i, crtc_register[i]);
             }
 
-            printf("\n\n CGA regs: 0x%02x 0x%02x\n\n", cga_register[0], cga_register[1]);
+            // printf("\n\n CGA regs: 0x%02x 0x%02x\n\n", cga_register[0], cga_register[1]);
         } else if (c == 'C') {
             // Переключение между keyboard и CTTY режимами
             ctty_mode = !ctty_mode;

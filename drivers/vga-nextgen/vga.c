@@ -49,8 +49,8 @@ static uint framebuffer_height = 0;
 static int framebuffer_offset_x = 0;
 static int framebuffer_offset_y = 0;
 
-static constexpr bool is_flash_line = false;
-static constexpr bool is_flash_frame = false;
+static constexpr bool is_flash_line = true;
+static constexpr bool is_flash_frame = true;
 
 //буфер 1к графической палитры
 static uint16_t __aligned(4) palette[2][256];
@@ -98,11 +98,13 @@ static inline uint32_t ega_pack8_from_planes(const uint32_t ega_planes) {
 
 void __time_critical_func() dma_handler_VGA() {
     dma_hw->ints0 = 1u << dma_channel_control;
+    static uint32_t frame_number = 0;
     static uint32_t screen_line = 0;
     screen_line++;
 
     if (screen_line == N_lines_total) {
         screen_line = 0;
+        frame_number++;
     }
 
     if (screen_line >= N_lines_visible) {
@@ -144,7 +146,7 @@ void __time_critical_func() dma_handler_VGA() {
         case TEXTMODE_40x25_BW: {
             // "слой" символа
             const uint8_t y_div_16 = screen_line / 16;
-            const uint8_t glyph_line = (screen_line / 2) & 7;
+            const uint8_t glyph_line = screen_line & 15;
             //указатель откуда начать считывать символы
             const uint32_t *__restrict text_buffer_line = (uint32_t*) VIDEORAM + __fast_mul(y_div_16, 20);
 
@@ -152,21 +154,21 @@ void __time_critical_func() dma_handler_VGA() {
                 uint32_t dword = *text_buffer_line++;
 
                 // обработка двух символов в dword
-                for (int s = 0; s < 2; ++s) {
-                    uint8_t ch = dword & 0xFF;  // символ
+                for (int j = 0; j < 2; ++j) {
+                    const uint8_t character_idx = dword & 0xFF;  // символ
                     dword >>= 8;
-                    uint8_t palette_idx = dword & 0xFF; // индекс палитры для этого символа
+                    const uint8_t palette_idx = dword & 0xFF; // индекс палитры для этого символа
                     dword >>= 8;
 
                     const uint16_t *palette_color = &txt_palette_fast[4 * palette_idx];
-                    uint8_t glyph_pixels = font_8x8[(ch * 8) + glyph_line];
+                    uint8_t glyph_pixels = font_8x16[(character_idx * 16) + glyph_line];
 
                     // генерируем 4 блока по 2-битным пикселям
-                    for (int q = 0; q < 4; ++q) {
-                        uint16_t pal = palette_color[glyph_pixels & 3];
-                        uint16_t lo = pal & 0xFF;
-                        uint16_t hi = pal >> 8;
-                        uint32_t out32 = (uint32_t)(lo << 8 | lo) | ((uint32_t)(hi << 8 | hi) << 16);
+                    for (int k = 0; k < 4; ++k) {
+                        const uint16_t palette = palette_color[glyph_pixels & 3];
+                        const uint16_t lo = palette & 0xFF;
+                        const uint16_t hi = palette >> 8;
+                        const uint32_t out32 = (uint32_t)(lo << 8 | lo) | ((uint32_t)(hi << 8 | hi) << 16);
                         *output_buffer_32bit++ = out32;
                         glyph_pixels >>= 2;
                     }
@@ -230,7 +232,7 @@ void __time_critical_func() dma_handler_VGA() {
     // Зона прорисовки изображения. Начальные точки буферов
     // uint8_t *input_buffer_8bit = graphics_framebuffer + 0x8000 + ((vram_offset & 0xffff) << 1) + __fast_mul(y >> 1, 80) + ((y & 1) << 13);
     // Индекс палитры в зависимости от настроек чередования строк и кадров
-    const uint16_t *current_palette = palette[(y & is_flash_line)];
+    const uint16_t *current_palette = palette[(y & is_flash_line) + (frame_number & is_flash_frame) & 1];
 
     switch (graphics_mode) {
         case CGA_320x200x4:

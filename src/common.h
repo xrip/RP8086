@@ -152,3 +152,10 @@ typedef struct {
     uint8_t result_index;
     uint8_t check_drives_mask;
 } i8272_s;
+
+typedef struct {
+    uint8_t port3D8;
+    uint8_t port3D9;
+    uint8_t port3DA;
+    bool updated;
+} cga_s;

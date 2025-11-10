@@ -19,6 +19,8 @@ extern uint8_t current_scancode; // Keyboard scancode (defined in main.c)
 uint8_t port3DA = 0; // VGA status port state
 static uint8_t port61 = 0;  // System Control Port B (8255 PPI Port B)
 
+extern cga_s cga;
+
 // Keyboard controller (8042) state
 static uint8_t keyboard_command_byte = 0x45; // Default: interrupts enabled, system flag set
 static uint8_t keyboard_last_command = 0;
@@ -27,7 +29,6 @@ static bool keyboard_has_response = false;
 
 static uint8_t crtc_index = 0;
 extern uint8_t crtc_register[32];
-extern uint8_t cga_register[2];
 extern uint8_t videomode;
 
 __force_inline static uint8_t port_read8(const uint32_t address) {
@@ -39,8 +40,9 @@ __force_inline static uint8_t port_read8(const uint32_t address) {
         case 0x3D5:
             return crtc_register[crtc_index];
         case 0x3D8:
+            return cga.port3D8;
         case 0x3D9:
-            return cga_register[address & 1];
+            return cga.port3D9;
         case 0x3DA:
 
             {
@@ -86,8 +88,8 @@ __force_inline static uint8_t port_read8(const uint32_t address) {
             uint8_t r = 0;
             if (port61 & 0x8) {
                 r |= 0; //1 << 2; // 1 FDD
-                r |= 0b01; // CGA 40x25
-                // r |= 0b10; // CGA 80x25
+                // r |= 0b01; // CGA 40x25
+                r |= 0b10; // CGA 80x25
                 //r |= 0b11; // MdA
             } else {
                 r |= 0x4;
@@ -197,31 +199,13 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
             crtc_register[crtc_index] = data;
             break;
         case 0x3D8: {
-            cga_register[0] = data; // Store the raw register value
-
-            if (data & 0b10) { // Bit 1: Graphics/Text Select
-                // Graphics Mode
-                if (data & 0b10000) { // Bit 4: 640x200 vs 320x200
-                    // 640x200 B/W Graphics
-                    videomode = CGA_640x200x2;
-                } else {
-                    // 320x200 Color Graphics
-                    videomode  = CGA_320x200x4;
-                }
-            } else {
-                // Text Mode
-                if (data & 1) { // Bit 0: 40/80 Column Select
-                    // 40x25 Text
-                    videomode = TEXTMODE_80x25_COLOR;
-                } else {
-                    // 80x25 Text
-                    videomode = TEXTMODE_40x25_COLOR;
-                }
-            }
+            cga.port3D8 = data; // Store the raw register value
+            cga.updated = true;
             return;
         }
         case 0x3D9:
-            cga_register[1] = data;
+            cga.port3D9 = data;
+            cga.updated = true;
             return;
 
         case 0x3F2: case 0x3F5: {
