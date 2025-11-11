@@ -13,7 +13,6 @@
 // External Port Arrays and Variables
 // ============================================================================
 extern uint8_t current_scancode; // Keyboard scancode (defined in main.c)
-extern int vram_offset;
 // ============================================================================
 // Port State Variables
 // ============================================================================
@@ -21,6 +20,7 @@ uint8_t port3DA = 0; // VGA status port state
 static uint8_t port61 = 0;  // System Control Port B (8255 PPI Port B)
 
 extern cga_s cga;
+extern mc6845_s mc6845;
 
 // Keyboard controller (8042) state
 static uint8_t keyboard_command_byte = 0x45; // Default: interrupts enabled, system flag set
@@ -29,7 +29,6 @@ static uint8_t keyboard_response_buffer = 0;
 static bool keyboard_has_response = false;
 
 static uint8_t crtc_index = 0;
-extern uint8_t crtc_register[32];
 extern uint8_t videomode;
 
 __force_inline static uint8_t port_read8(const uint32_t address) {
@@ -39,7 +38,7 @@ __force_inline static uint8_t port_read8(const uint32_t address) {
         case 0x3D4:
             return crtc_index;
         case 0x3D5:
-            return crtc_register[crtc_index];
+            return mc6845.registers[crtc_index];
         case 0x3D8:
             return cga.port3D8;
         case 0x3D9:
@@ -211,8 +210,13 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
         case 0x3D3:
         case 0x3D5:
         case 0x3D7:
-            crtc_register[crtc_index] = data;
-            vram_offset = (((int)crtc_register[0xC] << 8) + (int)crtc_register[0xD]) << 1;
+            mc6845.registers[crtc_index] = data;
+            // TODO: Сразу вычислять поинтер  VIDEORAM чтобы в потребителе не тратить времея на вычисления
+            mc6845.vram_offset = (mc6845.r.start_addr_h << 8 | mc6845.r.start_addr_l) << 1;
+
+            const uint16_t cursor_offset = (mc6845.r.cursor_addr_h << 8 | mc6845.r.cursor_addr_l);
+            mc6845.cursor_x = cursor_offset % mc6845.r.h_displayed;
+            mc6845.cursor_y = cursor_offset / mc6845.r.h_displayed;
             break;
         case 0x3B8:
         case 0x3D8: {

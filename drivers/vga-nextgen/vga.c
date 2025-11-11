@@ -7,6 +7,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <arm_acle.h>
+#include <common.h>
 
 #include <stdlib.h>
 uint16_t pio_program_VGA_instructions[] = {
@@ -16,8 +17,8 @@ uint16_t pio_program_VGA_instructions[] = {
 };
 
 extern uint8_t port3DA;
-extern int vram_offset;
 extern uint8_t VIDEORAM[];
+extern mc6845_s mc6845;
 
 const struct pio_program pio_program_VGA = {
     .instructions = pio_program_VGA_instructions,
@@ -121,7 +122,7 @@ void __time_critical_func() dma_handler_VGA() {
             const uint8_t y_div_16 = screen_line / 16;
             const uint8_t glyph_line = screen_line & 15;
             //указатель откуда начать считывать символы
-            const uint32_t *__restrict text_buffer_line = (uint32_t*) VIDEORAM + vram_offset + __fast_mul(y_div_16, 20);
+            const uint32_t *__restrict text_buffer_line = (uint32_t*) VIDEORAM + mc6845.vram_offset + __fast_mul(y_div_16, 20);
 
             for (int i = 20; i--;) {
                 uint32_t dword = *text_buffer_line++;
@@ -159,13 +160,22 @@ void __time_critical_func() dma_handler_VGA() {
             const uint8_t glyph_line = screen_line & 15;
 
             //указатель откуда начать считывать символы
-            const uint32_t *__restrict text_buffer_line = (uint32_t*) VIDEORAM + vram_offset + __fast_mul(y_div_16, 40);
+            const uint32_t *__restrict text_buffer_line = (uint32_t*) VIDEORAM + mc6845.vram_offset + __fast_mul(y_div_16, 40);
+            const bool is_cursor_line_active =
+                mc6845.cursor_blink_state &&
+                (y_div_16 == mc6845.cursor_y) &&
+                (mc6845.r.cursor_start <= mc6845.r.cursor_end) &&
+                ((glyph_line >> 1) >= mc6845.r.cursor_start && (glyph_line >> 1) <= mc6845.r.cursor_end);
 
-            for (int i = 40; i--;) {
+
+            for (int char_x = 0; char_x < 80; char_x+=2) {
                 uint32_t dword = *text_buffer_line++;
 
                 // Первый символ из пачки
                 uint8_t glyph_pixels = font_8x16[(dword & 0xFF) * 16 + glyph_line];
+                if (is_cursor_line_active && (char_x == mc6845.cursor_x)) {
+                    glyph_pixels = ~glyph_pixels; // Инвертируем все 2-битные пиксели разом
+                }
                 dword >>= 8;
                 const uint16_t *palette_color = &txt_palette_fast[4 * (dword & 0xFF)];
 
@@ -177,6 +187,9 @@ void __time_critical_func() dma_handler_VGA() {
                 // Первый символ из второй символ из пачки
                 dword >>= 8;
                 glyph_pixels = font_8x16[(dword & 0xFF) * 16 + glyph_line];
+                if (is_cursor_line_active && (char_x+1 == mc6845.cursor_x)) {
+                    glyph_pixels = ~glyph_pixels; // Инвертируем все 2-битные пиксели разом
+                }
                 dword >>= 8;
                 palette_color = &txt_palette_fast[4 * dword];
 
@@ -207,7 +220,7 @@ void __time_critical_func() dma_handler_VGA() {
     switch (graphics_mode) {
         case CGA_320x200x4:
         case CGA_320x200x4_BW: {
-            const uint32_t *__restrict cga_row = (uint32_t*) (VIDEORAM + ((vram_offset + __fast_mul(y >> 1, 80) + ((y & 1) << 13)) & 0x3FFF));
+            const uint32_t *__restrict cga_row = (uint32_t*) (VIDEORAM + ((mc6845.vram_offset + __fast_mul(y >> 1, 80) + ((y & 1) << 13)) & 0x3FFF));
 
             // 2bit buf, 16 pixels at once
             for (int x = 20; x--;) {
@@ -240,7 +253,7 @@ void __time_critical_func() dma_handler_VGA() {
             break;
         }
         case CGA_640x200x2: {
-            const uint32_t *__restrict cga_row = (uint32_t*) (VIDEORAM + ((vram_offset + __fast_mul(y >> 1, 80) + ((y & 1) << 13)) & 0x3FFF));
+            const uint32_t *__restrict cga_row = (uint32_t*) (VIDEORAM + ((mc6845.vram_offset + __fast_mul(y >> 1, 80) + ((y & 1) << 13)) & 0x3FFF));
             auto output_buffer_8bit = (uint8_t *) output_buffer_16bit;
             //1bit buf, 32 pixels at once
             for (int x = 20; x--;) {

@@ -15,8 +15,8 @@
 #include <hardware/structs/xip.h>
 #endif
 extern cga_s cga;
+extern mc6845_s mc6845;
 uint8_t videomode = 0;
-int vram_offset = 0;
 uint8_t crtc_register[32];
 uint32_t timer_interval = 54925;
 bool ctty_mode = false; // false = keyboard mode, true = CTTY mode
@@ -117,6 +117,8 @@ static void pic_init(void) {
     reset_cpu(); // Now i8086 can safely start
 
     absolute_time_t next_irq0 = get_absolute_time();
+    absolute_time_t cursor_blink = get_absolute_time();
+
     next_irq0 = delayed_by_us(next_irq0, timer_interval);
 
     while (true) {
@@ -293,11 +295,13 @@ constexpr uint8_t cga_gfxpal[3][2][4] = {
     }
 #endif
 
+    uint32_t frame_counter = 0;
     uint8_t old_videomode = 0;
     while (true) {
         // Отрисовка MDA фреймбуфера
         if (absolute_time_diff_us(next_frame, get_absolute_time()) >= 0) {
-            next_frame = delayed_by_us(next_frame, 16666 * 2);
+            next_frame = delayed_by_us(next_frame, 16666);
+            mc6845.cursor_blink_state = frame_counter++ >> 4 & 1;
 
             if (cga.updated) {
                 if (unlikely(cga.port3D8 & 0b10)) { // Bit 1: Graphics/Text Select

@@ -154,6 +154,38 @@ typedef struct {
 } i8272_s;
 
 typedef struct {
+    union {
+        // Член для доступа к регистрам как к массиву
+        uint8_t registers[16];
+
+        // Член для доступа к регистрам по их именам
+        struct {
+            uint8_t h_total;            // R0: Horizontal Total
+            uint8_t h_displayed;        // R1: Horizontal Displayed
+            uint8_t h_sync_pos;         // R2: HSync Position
+            uint8_t h_sync_width;       // R3: HSync Width
+            uint8_t v_total;            // R4: Vertical Total
+            uint8_t v_total_adjust;     // R5: VTotal Adjust
+            uint8_t v_displayed;        // R6: Vertical Displayed
+            uint8_t v_sync_pos;         // R7: VSync Position
+            uint8_t interlace_mode;     // R8: Interlace Mode
+            uint8_t max_scanline_addr;  // R9: Max Scanline Address
+            uint8_t cursor_start;       // R10: Cursor Start Line
+            uint8_t cursor_end;         // R11: Cursor End Line
+            uint8_t start_addr_h;       // R12: Start Addr (H)
+            uint8_t start_addr_l;       // R13: Start Addr (L)
+            uint8_t cursor_addr_h;      // R14: Cursor Addr (H)
+            uint8_t cursor_addr_l;      // R15: Cursor Addr (L)
+        } r;
+    };
+    uint16_t vram_offset;
+
+    bool cursor_blink_state;
+    uint8_t cursor_x;
+    uint8_t cursor_y;
+} mc6845_s;
+
+typedef struct {
     uint8_t port3D8;
     uint8_t port3D9;
     uint8_t port3DA;
