@@ -127,7 +127,7 @@ __force_inline static void uart_write(const uint32_t port, const uint8_t data) {
             }
             // DLAB=0: отправляем байт в USB терминал
             uart.thr = data;
-            //putchar_raw(data); // Немедленный вывод в USB
+            putchar_raw(data); // Немедленный вывод в USB
             return;
         }
 
