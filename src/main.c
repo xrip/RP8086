@@ -258,7 +258,7 @@ constexpr uint8_t cga_gfxpal[3][2][4] = {
     vreg_disable_voltage_limit();
     vreg_set_voltage(VREG_VOLTAGE_1_60);
     busy_wait_at_least_cycles((SYS_CLK_VREG_VOLTAGE_AUTO_ADJUST_DELAY_US * (uint64_t) XOSC_HZ) / 1000000);
-    qmi_hw->m[0].timing = 0x60007304; // 4x FLASH divisor
+    qmi_hw->m[0].timing = 0x60007405; // 4x FLASH divisor
     set_sys_clock_hz(PICO_CLOCK_SPEED, true);
     psram_init(47);
 #else
