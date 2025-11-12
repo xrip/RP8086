@@ -41,6 +41,7 @@ void reset_cpu(void)
     gpio_put(RESET_PIN, 1);
     busy_wait_ms(10);
     gpio_put(RESET_PIN, 0);
+
 }
 
 

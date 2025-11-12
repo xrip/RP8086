@@ -10,7 +10,13 @@ i8259_s i8259 __attribute__((aligned(4))) = {
     .interrupt_mask_register = 0xFF, // Все IRQ замаскированы
     .interrupt_vector_offset = 0x08, // Стандартный offset для IBM PC
 };
-i8253_s i8253 __attribute__((aligned(4))) = { 0 };
+i8253_s i8253 __attribute__((aligned(4))) = {
+    {
+        {.latched_value = 0xFFFF},
+        {.latched_value = 0xFFFF},
+        {.latched_value = 0xFFFF},
+    }
+};
 i8272_s i8272 __attribute__((aligned(4)));
 dma_channel_s dma_channels[DMA_CHANNELS];
 

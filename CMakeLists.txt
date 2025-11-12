@@ -33,6 +33,7 @@ add_executable(${PROJECT_NAME}
         src/common.c
 )
 
+add_subdirectory(drivers/usbhid)
 add_subdirectory(drivers/graphics)
 add_subdirectory(drivers/vga-nextgen)
 target_link_libraries(${PROJECT_NAME} PRIVATE vga-nextgen)
@@ -60,7 +61,7 @@ pico_generate_pio_header(${PROJECT_NAME}
 )
 
 pico_enable_stdio_uart(${PROJECT_NAME} 0)
-pico_enable_stdio_usb(${PROJECT_NAME} 1)
+pico_enable_stdio_usb(${PROJECT_NAME} 0)
 
 target_include_directories(${PROJECT_NAME} PRIVATE
 
@@ -68,15 +69,22 @@ target_include_directories(${PROJECT_NAME} PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/rom
 )
 
-
+set(FAMILY rp2040)
+set(BOARD pico_sdk)
+set(TINYUSB_FAMILY_PROJECT_NAME_PREFIX "tinyusb_host_")
 target_link_libraries(${PROJECT_NAME} PRIVATE
         graphics
+        usbhid
 
         pico_runtime
+        pico_stdlib
         pico_stdio
         pico_multicore
         hardware_pio
         hardware_pwm
+
+        tinyusb_board tinyusb_host
+
 
 )
 pico_set_binary_type(${PROJECT_NAME} copy_to_ram)

@@ -4,6 +4,8 @@
 #include "cpu_bus.h"
 #include "common.h"
 #include "graphics.h"
+#include "hid_app.h"
+#include "tusb.h"
 #include "hardware/watchdog.h"
 #include "pico/bootrom.h"
 #include "pico/multicore.h"
@@ -117,8 +119,6 @@ static void pic_init(void) {
     reset_cpu(); // Now i8086 can safely start
 
     absolute_time_t next_irq0 = get_absolute_time();
-    absolute_time_t cursor_blink = get_absolute_time();
-
     next_irq0 = delayed_by_us(next_irq0, timer_interval);
 
     while (true) {
@@ -253,12 +253,19 @@ constexpr uint8_t cga_gfxpal[3][2][4] = {
 };
 
 
+bool handleScancode(const uint32_t ps2scancode) {
+    current_scancode = ps2scancode;
+    i8259_interrupt(1); // IRQ1 - Keyboard interrupt через i8259
+    return true;
+}
+
+
 [[noreturn]] int main() {
 #if PICO_RP2350
     vreg_disable_voltage_limit();
     vreg_set_voltage(VREG_VOLTAGE_1_60);
     busy_wait_at_least_cycles((SYS_CLK_VREG_VOLTAGE_AUTO_ADJUST_DELAY_US * (uint64_t) XOSC_HZ) / 1000000);
-    qmi_hw->m[0].timing = 0x60007405; // 4x FLASH divisor
+    qmi_hw->m[0].timing = 0x60007305; // 4x FLASH divisor
     set_sys_clock_hz(PICO_CLOCK_SPEED, true);
     psram_init(47);
 #else
@@ -269,10 +276,12 @@ constexpr uint8_t cga_gfxpal[3][2][4] = {
 
 #endif
     // busy_wait_ms(250); // Даем время стабилизироваться напряжению
-    stdio_usb_init();
-    // while (!stdio_usb_connected()) { tight_loop_contents(); }
-
-
+#if NEBUG
+    stdio_init_all();
+    while (!stdio_usb_connected()) { tight_loop_contents(); }
+#endif
+    tusb_init();
+    keyboard_init();
     multicore_launch_core1(bus_handler_core);
 
     absolute_time_t next_frame = get_absolute_time();
@@ -297,11 +306,15 @@ constexpr uint8_t cga_gfxpal[3][2][4] = {
 
     uint32_t frame_counter = 0;
     uint8_t old_videomode = 0;
+    keyboard_tick();
     while (true) {
+
         // Отрисовка MDA фреймбуфера
         if (absolute_time_diff_us(next_frame, get_absolute_time()) >= 0) {
+            keyboard_tick();
             next_frame = delayed_by_us(next_frame, 16666);
             mc6845.cursor_blink_state = frame_counter++ >> 4 & 1;
+
 
             if (cga.updated) {
                 if (unlikely(cga.port3D8 & 0b10)) { // Bit 1: Graphics/Text Select
@@ -336,28 +349,27 @@ constexpr uint8_t cga_gfxpal[3][2][4] = {
 
                 cga.updated = false;
             }
-
-            if (video_enabled) {
-                printf("\033[H"); // cursor home
-                printf("\033[2J"); // clear screen
-                printf("\033[3J");       // clear scrollback
-                printf("\033[40m"); // black background
-                printf("\033[?25l"); // hide cursor (reduce flicker)
-                for (int y = 0; y < 25; y++) {
-                    const uint32_t *framebuffer_line = (uint32_t *) VIDEORAM + __fast_mul(y, 40);
-                    for (int x = 40; x--;) {
-                        const uint32_t dword = *framebuffer_line++ & 0x00FF00FF;
-                        putchar_raw(dword);
-                        putchar_raw(dword >> 16);
-                    }
-                    if (y != 24) {
-                        putchar_raw(0x0D);
-                        putchar_raw(0x0A);
-                    }
+#if DEBUG
+            printf("\033[H"); // cursor home
+            printf("\033[2J"); // clear screen
+            printf("\033[3J");       // clear scrollback
+            printf("\033[40m"); // black background
+            printf("\033[?25l"); // hide cursor (reduce flicker)
+            for (int y = 0; y < 25; y++) {
+                const uint32_t *framebuffer_line = (uint32_t *) VIDEORAM + __fast_mul(y, 40);
+                for (int x = 40; x--;) {
+                    const uint32_t dword = *framebuffer_line++ & 0x00FF00FF;
+                    putchar_raw(dword);
+                    putchar_raw(dword >> 16);
+                }
+                if (y != 24) {
+                    putchar_raw(0x0D);
+                    putchar_raw(0x0A);
                 }
             }
+#endif
         }
-
+#if DEBUG
         // DMA polling и передача данных (асинхронная эмуляция Intel 8237)
 
         int c = getchar_timeout_us(0);
@@ -473,7 +485,7 @@ constexpr uint8_t cga_gfxpal[3][2][4] = {
                 push_scancode(scancode);
             }
         }
-
+#endif
         //__wfi();
         tight_loop_contents();
     }

@@ -69,7 +69,7 @@ void __time_critical_func(bus_read_handler1)() {
         // PIO заблокирован на 'pull block' и активно ждёт наши данные, TX FIFO точно не полон.
         if (unlikely(irq_pending_vector)) {
             // INTA: возвращаем вектор прерывания (0x08 для IRQ0, 0x09 для IRQ1)
-            BUS_CTRL_PIO->txf[BUS_CTRL_SM] = irq_pending_vector << 16 | 0x00FF;
+            BUS_CTRL_PIO->txf[BUS_CTRL_SM] = irq_pending_vector;
             irq_pending_vector = 0;
         } else {
             // Обычное чтение памяти/портов.
@@ -90,8 +90,9 @@ void __time_critical_func(bus_read_handler1)() {
         // Получаем вектор прерывания от i8259
         const uint8_t vector = i8259_nextirq();
         if (vector) {
-            irq_pending_vector = 0xFF00 | vector;  // Формат: 0xFF00 | вектор
+            irq_pending_vector = vector << 16 | 0x00FF;  // Формат: 0xFF00 | вектор
         }
+
     }
 }
 
