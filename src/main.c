@@ -4,8 +4,14 @@
 #include "cpu_bus.h"
 #include "common.h"
 #include "graphics.h"
+
+#ifndef DEBUG
 #include "hid_app.h"
 #include "tusb.h"
+#else
+#include "pico/stdio.h"
+#endif
+
 #include "hardware/watchdog.h"
 #include "pico/bootrom.h"
 #include "pico/multicore.h"
@@ -276,12 +282,16 @@ bool handleScancode(const uint32_t ps2scancode) {
 
 #endif
     // busy_wait_ms(250); // Даем время стабилизироваться напряжению
-#if NEBUG
-    stdio_init_all();
-    while (!stdio_usb_connected()) { tight_loop_contents(); }
-#endif
+
+
+#ifndef DEBUG
     tusb_init();
     keyboard_init();
+#else
+    stdio_init_all();
+    // while (!stdio_usb_connected()) { tight_loop_contents(); }
+#endif
+
     multicore_launch_core1(bus_handler_core);
 
     absolute_time_t next_frame = get_absolute_time();
@@ -306,12 +316,13 @@ bool handleScancode(const uint32_t ps2scancode) {
 
     uint32_t frame_counter = 0;
     uint8_t old_videomode = 0;
-    keyboard_tick();
     while (true) {
 
         // Отрисовка MDA фреймбуфера
         if (absolute_time_diff_us(next_frame, get_absolute_time()) >= 0) {
+#ifndef DEBUG
             keyboard_tick();
+#endif
             next_frame = delayed_by_us(next_frame, 16666);
             mc6845.cursor_blink_state = frame_counter++ >> 4 & 1;
 

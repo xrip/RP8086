@@ -858,7 +858,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const* desc_re
                 gamepad->button_state = 0;
                 gamepads_count++;
 
-                printf("Gamepad connected: VID: %04X PID: %04X\n", vid, pid);
+                // printf("Gamepad connected: VID: %04X PID: %04X\n", vid, pid);
             }
             break;
 
@@ -878,9 +878,11 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
     switch (itf_protocol) {
         case HID_ITF_PROTOCOL_KEYBOARD:
             const hid_keyboard_report_t *kbd_report = (const hid_keyboard_report_t*)report;
+            /*
             printf("keyboard report: modifier=%02x keycode=[%3d %3d %3d %3d %3d %3d]\n",
                 kbd_report->modifier, kbd_report->keycode[0],
                 kbd_report->keycode[1], kbd_report->keycode[2], kbd_report->keycode[3], kbd_report->keycode[4], kbd_report->keycode[5]);
+                */
             ctrl_pressed = kbd_report->modifier & 0x11;
             find_pressed_keys(kbd_report);
             find_released_keys(kbd_report);
