@@ -16,8 +16,8 @@ project(RP8086 C CXX ASM)
 
 pico_sdk_init()
 add_compile_options(
-        #        -flto=auto
-        #        -fwhole-program
+#                -flto=auto
+#                -fwhole-program
         #        -ffunction-sections
         #        -fdata-sections
         -Ofast
@@ -65,13 +65,6 @@ else ()
             usbhid
             tinyusb_host
             tinyusb_board
-    )
-    target_compile_options(${PROJECT_NAME} PRIVATE
-#                    -flto=auto
-#                    -fwhole-program
-            #        -ffunction-sections
-            #        -fdata-sections
-#            -Ofast
     )
 endif ()
 
