@@ -4,6 +4,7 @@
 #include "cpu_bus.h"
 #include "common.h"
 #include "graphics.h"
+#include "hardware/pwm.h"
 
 #ifndef DEBUG
 #include "hid_app.h"
@@ -29,6 +30,8 @@ uint8_t crtc_register[32];
 uint32_t timer_interval = 54925;
 bool ctty_mode = false; // false = keyboard mode, true = CTTY mode
 uint8_t current_scancode = 0; // 0 = нет данных
+pwm_config pwm;
+
 // ============================================================================
 // ASCII to Scancode (IBM PC/XT Set 1) - Simplified
 // ============================================================================
@@ -292,10 +295,16 @@ bool handleScancode(const uint32_t ps2scancode) {
     // while (!stdio_usb_connected()) { tight_loop_contents(); }
 #endif
 
+    pwm = pwm_get_default_config();
+    gpio_set_function(BEEPER_PIN, GPIO_FUNC_PWM);
+    pwm_config_set_clkdiv(&pwm, 127);
+    pwm_init(pwm_gpio_to_slice_num(BEEPER_PIN), &pwm, true);
+
     multicore_launch_core1(bus_handler_core);
 
     absolute_time_t next_frame = get_absolute_time();
     next_frame = delayed_by_us(next_frame, 16666);
+
 
 
     bool video_enabled = true;

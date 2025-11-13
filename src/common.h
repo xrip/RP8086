@@ -34,6 +34,9 @@
 #define RESET_PIN        28             // Reset output (active HIGH)
 #define CLOCK_PIN        29             // Clock output to i8086
 
+
+#define BEEPER_PIN        46
+
 // ============================================================================
 // PIO Configuration
 // ============================================================================

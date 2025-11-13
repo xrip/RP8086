@@ -1,5 +1,6 @@
 #pragma once
 #include "common.h"
+#include "hardware/pwm.h"
 
 #define PIT_MODE_LATCHCOUNT  0
 #define PIT_MODE_LOBYTE      1
@@ -8,12 +9,11 @@
 #define PIT_FREQUENCY        1193182
 
 extern i8253_s i8253;
-extern bool speakerenabled;
 extern uint32_t timer_interval;
+extern uint8_t port61;
+extern pwm_config pwm;
 
-__force_inline static uint16_t i8253_get_current_count( i8253_channel_s *ch) {
-
-
+__force_inline static uint16_t i8253_get_current_count(i8253_channel_s *ch) {
     const uint32_t reload = ch->reload_value ? : 65536;
     const uint64_t now = get_absolute_time();
 
@@ -24,17 +24,6 @@ __force_inline static uint16_t i8253_get_current_count( i8253_channel_s *ch) {
 __force_inline static uint8_t i8253_read(const uint16_t port_number) {
     i8253_channel_s *channel = &i8253.channels[port_number & 3];
 
-    /*const uint8_t latch = channel->latch_mode;
-    const uint8_t access_mode = latch ? latch : channel->access_mode;
-    const uint16_t value = latch ? channel->latched_value : i8253_get_current_count(channel);
-    const uint8_t result = (channel->byte_toggle == 0 || access_mode == PIT_MODE_LOBYTE) ? (uint8_t) value : (uint8_t) (value >> 8);
-
-    if (access_mode == PIT_MODE_TOGGLE) {
-        if (latch && channel->byte_toggle) channel->latch_mode = 0;
-        channel->byte_toggle ^= 1;
-    } else if (latch) {
-        channel->latch_mode = 0;
-    }*/
     const uint16_t value = i8253_get_current_count(channel);
     switch (channel->access_mode) {
         case PIT_MODE_LOBYTE:
@@ -53,7 +42,6 @@ __force_inline static uint8_t i8253_read(const uint16_t port_number) {
         default:
             return 0xFF;
     }
-
 }
 
 __force_inline static void i8253_write(const uint16_t port_number, const uint8_t data) {
@@ -80,9 +68,13 @@ __force_inline static void i8253_write(const uint16_t port_number, const uint8_t
         channel->active = true;
         channel->start_timestamp_us = get_absolute_time();
         // Канал 0 управляет системным таймером
-        if (!channel_index) {
+        if (channel_index == 0) {
             const uint32_t reload_value = channel->reload_value ? : 65536;
             timer_interval = (uint32_t) (((uint64_t) reload_value * 1000000ULL) / PIT_FREQUENCY);
+        } else if (channel_index == 2) {
+            pwm_config_set_wrap(&pwm, channel->reload_value);
+            pwm_init(pwm_gpio_to_slice_num(BEEPER_PIN), &pwm, true);
+            pwm_set_gpio_level(BEEPER_PIN, (port61 & 3) == 3 ? channel->reload_value / 2 : 0);
         }
     } else {
         // Запись Control Word (порт 0x43)

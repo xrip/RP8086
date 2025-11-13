@@ -9,6 +9,7 @@
 #include "hardware/i8272.h"
 #include "hardware/uart16550.h"
 #include "graphics.h"
+#include "hardware/pwm.h"
 // ============================================================================
 // External Port Arrays and Variables
 // ============================================================================
@@ -17,7 +18,7 @@ extern uint8_t current_scancode; // Keyboard scancode (defined in main.c)
 // Port State Variables
 // ============================================================================
 uint8_t port3DA = 0; // VGA status port state
-static uint8_t port61 = 0;  // System Control Port B (8255 PPI Port B)
+uint8_t port61 = 0;  // System Control Port B (8255 PPI Port B)
 
 extern cga_s cga;
 extern mc6845_s mc6845;
@@ -155,6 +156,11 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
         }
         case 0x61: {
             // System Control Port B (8255 PPI Port B)
+            if ((data & 3) == 3) {
+                pwm_set_gpio_level(BEEPER_PIN, 127);
+            } else {
+                pwm_set_gpio_level(BEEPER_PIN, 0);
+            }
             port61 = (port61 & 0x10) | (data & 0x0f);
             return;
         }

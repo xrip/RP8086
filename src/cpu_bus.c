@@ -74,11 +74,11 @@ void __time_critical_func(bus_read_handler1)() {
         } else {
             // Обычное чтение памяти/портов.
             const uint16_t data = i8086_read(bus_state, bus_state & MIO, bus_state & BHE);
-            if (data == 0xFFFF) {
-                BUS_CTRL_PIO->txf[BUS_CTRL_SM] = 0;
-            } else {
+            // if (data == 0xFFFF) {
+                // BUS_CTRL_PIO->txf[BUS_CTRL_SM] = 0;
+            // } else {
                 BUS_CTRL_PIO->txf[BUS_CTRL_SM] = data << 16 | 0xFFFF;
-            }
+            // }
         }
 
         // TODO если мы не можем обработать адрес, вместо того чтобы _НЕ_ перключать пины на выход - можно выполнить следующий код, чтобы отпустить шину
