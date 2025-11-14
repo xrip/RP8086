@@ -128,35 +128,59 @@ void __time_critical_func() dma_handler_VGA() {
 
     switch (graphics_mode) {
         case TEXTMODE_40x25_COLOR:
-        case TEXTMODE_40x25_BW: if (0) {
+        case TEXTMODE_40x25_BW: {
             // "слой" символа
-            const uint8_t y_div_16 = screen_line / 16;
-            const uint8_t glyph_line = screen_line & 15;
-            //указатель откуда начать считывать символы
-            const uint32_t *__restrict text_buffer_line = (uint32_t*) VIDEORAM + mc6845.vram_offset + __fast_mul(y_div_16, 20);
+            uint8_t char_scanlines = mc6845.r.max_scanline_addr;
+            const uint8_t glyph_line = y & char_scanlines;
+            char_scanlines++;
+            const uint8_t screen_y = y / char_scanlines;
 
-            for (int i = 20; i--;) {
+            //указатель откуда начать считывать символы
+            const uint32_t *__restrict text_buffer_line = (uint32_t*) VIDEORAM + mc6845.vram_offset + __fast_mul(screen_y, mc6845.r.h_displayed / 2);
+            const bool is_cursor_line_active =
+                mc6845.cursor_blink_state &&
+                (screen_y == mc6845.cursor_y) &&
+                (mc6845.r.cursor_start <= mc6845.r.cursor_end) &&
+                (glyph_line >= mc6845.r.cursor_start && glyph_line <= mc6845.r.cursor_end);
+
+            for (int char_x = 0; char_x < mc6845.r.h_displayed; char_x += 2) {
                 uint32_t dword = *text_buffer_line++;
 
-                // обработка двух символов в dword
-                for (int j = 0; j < 2; ++j) {
-                    const uint8_t character_idx = dword & 0xFF;  // символ
-                    dword >>= 8;
-                    const uint8_t palette_idx = dword & 0xFF; // индекс палитры для этого символа
-                    dword >>= 8;
+                // Первый символ из пачки
+                uint8_t glyph_pixels = font_8x8[(dword & 0xFF) * char_scanlines + glyph_line];
+                if (is_cursor_line_active && (char_x == mc6845.cursor_x)) {
+                    glyph_pixels = ~glyph_pixels;
+                }
+                dword >>= 8;
+                const uint16_t *palette_color = &txt_palette_fast[4 * (dword & 0xFF)];
 
-                    const uint16_t *palette_color = &txt_palette_fast[4 * palette_idx];
-                    uint8_t glyph_pixels = font_8x16[(character_idx * 16) + glyph_line];
+                // генерируем 4 блока по 2-битным пикселям (удвоение по горизонтали для 40-колоночного режима)
+                for (int k = 0; k < 4; ++k) {
+                    const uint16_t palette = palette_color[glyph_pixels & 3];
+                    const uint16_t lo = palette & 0xFF;
+                    const uint16_t hi = palette >> 8;
+                    const uint32_t out32 = (uint32_t)(lo << 8 | lo) | ((uint32_t)(hi << 8 | hi) << 16);
+                    *output_buffer_32bit++ = out32;
+                    glyph_pixels >>= 2;
+                }
 
-                    // генерируем 4 блока по 2-битным пикселям
-                    for (int k = 0; k < 4; ++k) {
-                        const uint16_t palette = palette_color[glyph_pixels & 3];
-                        const uint16_t lo = palette & 0xFF;
-                        const uint16_t hi = palette >> 8;
-                        const uint32_t out32 = (uint32_t)(lo << 8 | lo) | ((uint32_t)(hi << 8 | hi) << 16);
-                        *output_buffer_32bit++ = out32;
-                        glyph_pixels >>= 2;
-                    }
+                // Второй символ из пачки
+                dword >>= 8;
+                glyph_pixels = font_8x8[(dword & 0xFF) * char_scanlines + glyph_line];
+                if (is_cursor_line_active && (char_x + 1 == mc6845.cursor_x)) {
+                    glyph_pixels = ~glyph_pixels;
+                }
+                dword >>= 8;
+                palette_color = &txt_palette_fast[4 * dword];
+
+                // генерируем 4 блока по 2-битным пикселям (удвоение по горизонтали для 40-колоночного режима)
+                for (int k = 0; k < 4; ++k) {
+                    const uint16_t palette = palette_color[glyph_pixels & 3];
+                    const uint16_t lo = palette & 0xFF;
+                    const uint16_t hi = palette >> 8;
+                    const uint32_t out32 = (uint32_t)(lo << 8 | lo) | ((uint32_t)(hi << 8 | hi) << 16);
+                    *output_buffer_32bit++ = out32;
+                    glyph_pixels >>= 2;
                 }
             }
 
@@ -180,7 +204,6 @@ void __time_critical_func() dma_handler_VGA() {
                 (screen_y == mc6845.cursor_y) &&
                 (mc6845.r.cursor_start <= mc6845.r.cursor_end) &&
                 (glyph_line >= mc6845.r.cursor_start && glyph_line <= mc6845.r.cursor_end);
-
 
             for (int char_x = 0; char_x < mc6845.r.h_displayed ; char_x+=2) {
                 uint32_t dword = *text_buffer_line++;
