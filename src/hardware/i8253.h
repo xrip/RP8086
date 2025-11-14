@@ -74,7 +74,7 @@ __force_inline static void i8253_write(const uint16_t port_number, const uint8_t
         } else if (channel_index == 2) {
             pwm_config_set_wrap(&pwm, channel->reload_value);
             pwm_init(pwm_gpio_to_slice_num(BEEPER_PIN), &pwm, true);
-            pwm_set_gpio_level(BEEPER_PIN, (port61 & 3) == 3 ? channel->reload_value / 2 : 0);
+            pwm_set_gpio_level(BEEPER_PIN, (port61 & 3) == 3 ? 127 : 0);
         }
     } else {
         // Запись Control Word (порт 0x43)
