@@ -121,10 +121,14 @@ void __time_critical_func() dma_handler_VGA() {
         return;
     }
 
-    if (screen_line & 1)
-        return;
+    uint32_t y = screen_line;
 
-    uint32_t y = screen_line >> 1;
+    // Non-interlace: удвоение каждой строки (пропуск нечётных)
+    if (likely((mc6845.r.interlace_mode & 1) == 0)) {
+        if (screen_line & 1)
+            return;
+        y >>=  1; // 200 логических строк
+    }
 
     switch (graphics_mode) {
         case TEXTMODE_40x25_COLOR:
