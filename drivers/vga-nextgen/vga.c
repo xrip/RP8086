@@ -115,9 +115,20 @@ void __time_critical_func() dma_handler_VGA() {
     uint16_t *__restrict output_buffer_16bit = (uint16_t *) (*output_buffer) + shift_picture / 2;
     auto output_buffer_32bit = (uint32_t *) output_buffer_16bit;
 
+
+    if (screen_line >= 400) {
+        dma_channel_set_read_addr(dma_channel_control, &lines_pattern[0], false); // TODO: ensue it is required
+        return;
+    }
+
+    if (screen_line & 1)
+        return;
+
+    uint32_t y = screen_line >> 1;
+
     switch (graphics_mode) {
         case TEXTMODE_40x25_COLOR:
-        case TEXTMODE_40x25_BW: {
+        case TEXTMODE_40x25_BW: if (0) {
             // "слой" символа
             const uint8_t y_div_16 = screen_line / 16;
             const uint8_t glyph_line = screen_line & 15;
@@ -156,23 +167,26 @@ void __time_critical_func() dma_handler_VGA() {
         case TEXTMODE_80x25_COLOR:
         case TEXTMODE_80x25_BW: {
             // "слой" символа
-            const uint8_t y_div_16 = screen_line / 16;
-            const uint8_t glyph_line = screen_line & 15;
+            uint8_t char_scanlines = mc6845.r.max_scanline_addr;
+            const uint8_t glyph_line = y & char_scanlines;
+            char_scanlines++;
+            const uint8_t screen_y = y / char_scanlines;
+
 
             //указатель откуда начать считывать символы
-            const uint32_t *__restrict text_buffer_line = (uint32_t*) VIDEORAM + mc6845.vram_offset + __fast_mul(y_div_16, 40);
+            const uint32_t *__restrict text_buffer_line = (uint32_t*) VIDEORAM + mc6845.vram_offset + __fast_mul(screen_y, mc6845.r.h_displayed / 2);
             const bool is_cursor_line_active =
                 mc6845.cursor_blink_state &&
-                (y_div_16 == mc6845.cursor_y) &&
+                (screen_y == mc6845.cursor_y) &&
                 (mc6845.r.cursor_start <= mc6845.r.cursor_end) &&
-                ((glyph_line >> 1) >= mc6845.r.cursor_start && (glyph_line >> 1) <= mc6845.r.cursor_end);
+                (glyph_line >= mc6845.r.cursor_start && glyph_line <= mc6845.r.cursor_end);
 
 
-            for (int char_x = 0; char_x < 80; char_x+=2) {
+            for (int char_x = 0; char_x < mc6845.r.h_displayed ; char_x+=2) {
                 uint32_t dword = *text_buffer_line++;
 
                 // Первый символ из пачки
-                uint8_t glyph_pixels = font_8x16[(dword & 0xFF) * 16 + glyph_line];
+                uint8_t glyph_pixels = font_8x8[(dword & 0xFF) * char_scanlines + glyph_line];
                 if (is_cursor_line_active && (char_x == mc6845.cursor_x)) {
                     glyph_pixels = ~glyph_pixels; // Инвертируем все 2-битные пиксели разом
                 }
@@ -186,7 +200,7 @@ void __time_critical_func() dma_handler_VGA() {
 
                 // Первый символ из второй символ из пачки
                 dword >>= 8;
-                glyph_pixels = font_8x16[(dword & 0xFF) * 16 + glyph_line];
+                glyph_pixels = font_8x8[(dword & 0xFF) * char_scanlines + glyph_line];
                 if (is_cursor_line_active && (char_x+1 == mc6845.cursor_x)) {
                     glyph_pixels = ~glyph_pixels; // Инвертируем все 2-битные пиксели разом
                 }
@@ -204,17 +218,6 @@ void __time_critical_func() dma_handler_VGA() {
             return;
         }
     }
-
-    if (screen_line & 1)
-        return;
-
-    uint32_t y = screen_line >> 1;
-
-    if (screen_line >= 400) {
-        dma_channel_set_read_addr(dma_channel_control, &lines_pattern[0], false); // TODO: ensue it is required
-        return;
-    }
-
     const uint16_t *current_palette = palette[(y & is_flash_line) + (frame_number & is_flash_frame) & 1];
 
     switch (graphics_mode) {
