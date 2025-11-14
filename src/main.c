@@ -19,10 +19,8 @@
 #include "hardware/i8259.h"
 #include "hardware/i8253.h"
 #include "hardware/uart16550.h"
-#if PICO_RP2350
 #include <hardware/structs/qmi.h>
 #include <hardware/structs/xip.h>
-#endif
 extern cga_s cga;
 extern mc6845_s mc6845;
 uint8_t videomode = 0;
@@ -36,25 +34,17 @@ pwm_config pwm;
 // ASCII to Scancode (IBM PC/XT Set 1) - Simplified
 // ============================================================================
 __force_inline uint8_t ascii_to_scancode(const int ascii) {
+    const uint8_t qwerty_map[] = {
+        0x1E, 0x30, 0x2E, 0x20, 0x12, 0x21, 0x22, 0x23, // a-h
+        0x17, 0x24, 0x25, 0x26, 0x32, 0x31, 0x18, 0x19, // i-p
+        0x10, 0x13, 0x1F, 0x14, 0x16, 0x2F, 0x11, 0x2D, // q-x
+        0x15, 0x2C // y-z
+    };
     // Letters
     if (ascii >= 'a' && ascii <= 'z') {
-        // QWERTY layout mapping
-        static const uint8_t qwerty_map[] = {
-            0x1E, 0x30, 0x2E, 0x20, 0x12, 0x21, 0x22, 0x23, // a-h
-            0x17, 0x24, 0x25, 0x26, 0x32, 0x31, 0x18, 0x19, // i-p
-            0x10, 0x13, 0x1F, 0x14, 0x16, 0x2F, 0x11, 0x2D, // q-x
-            0x15, 0x2C // y-z
-        };
         return qwerty_map[ascii - 'a'];
     }
     if (ascii >= 'A' && ascii <= 'Z') {
-        // Uppercase - same scancodes (shift handled separately)
-        static const uint8_t qwerty_map[] = {
-            0x1E, 0x30, 0x2E, 0x20, 0x12, 0x21, 0x22, 0x23,
-            0x17, 0x24, 0x25, 0x26, 0x32, 0x31, 0x18, 0x19,
-            0x10, 0x13, 0x1F, 0x14, 0x16, 0x2F, 0x11, 0x2D,
-            0x15, 0x2C
-        };
         return qwerty_map[ascii - 'A'];
     }
     // Digits
@@ -270,20 +260,15 @@ bool handleScancode(const uint32_t ps2scancode) {
 
 
 [[noreturn]] int main() {
-#if PICO_RP2350
+    // IMPORTANT! Dont remove, hack to create .flashdata section for linker
+    extern uint32_t PICO_CLOCK_SPEED_MHZ;
+    assert(PICO_CLOCK_SPEED_MHZ == PICO_CLOCK_SPEED);
     vreg_disable_voltage_limit();
     vreg_set_voltage(VREG_VOLTAGE_1_60);
     busy_wait_at_least_cycles((SYS_CLK_VREG_VOLTAGE_AUTO_ADJUST_DELAY_US * (uint64_t) XOSC_HZ) / 1000000);
     qmi_hw->m[0].timing = 0x60007305; // 4x FLASH divisor
-    set_sys_clock_hz(PICO_CLOCK_SPEED, true);
+    set_sys_clock_hz(PICO_CLOCK_SPEED_MHZ, true);
     psram_init(47);
-#else
-    // Overclock to 400 MHz for maximum performance
-    hw_set_bits(&vreg_and_chip_reset_hw->vreg, VREG_AND_CHIP_RESET_VREG_VSEL_BITS);
-    busy_wait_at_least_cycles((SYS_CLK_VREG_VOLTAGE_AUTO_ADJUST_DELAY_US * (uint64_t) XOSC_HZ) / 1000000);
-    set_sys_clock_hz(PICO_CLOCK_SPEED, true);
-
-#endif
     // busy_wait_ms(250); // Даем время стабилизироваться напряжению
 
 
@@ -308,7 +293,7 @@ bool handleScancode(const uint32_t ps2scancode) {
 
 
     bool video_enabled = true;
-#if PICO_RP2350
+
     graphics_init();
     graphics_set_buffer((uint8_t *) VIDEORAM, 320, 200);
     graphics_set_textbuffer((uint8_t *) VIDEORAM);
@@ -321,7 +306,6 @@ bool handleScancode(const uint32_t ps2scancode) {
     for (int i = 0; i < 16; i++) {
         graphics_set_palette(i, cga_palette[i]);
     }
-#endif
 
     uint32_t frame_counter = 0;
     uint8_t old_videomode = 0;

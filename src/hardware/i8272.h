@@ -11,7 +11,7 @@
 #define debug_log(...)
 #endif
 
-extern uint8_t FDD360[];
+extern uint8_t FLOPPY[];
 extern i8272_s i8272;
 // Single instance of the controller state (zero-initialized)
 
@@ -182,7 +182,7 @@ __force_inline static void i8272_writeport(const uint16_t port_number, const uin
                         // IRQ6 будет сгенерирован автоматически при завершении передачи
                         // const uint32_t size = endOfTrack * FDD_SECTOR_SIZE;
                         const uint32_t offset = ((cylinder * FDD_HEADS + head) * FDD_SECTORS_PER_TRACK + (sector - 1)) * FDD_SECTOR_SIZE;
-                        dma_start_transfer(2, &FDD360[offset], 6);
+                        dma_start_transfer(2, &FLOPPY[offset], 6);
                     } else {
                         // При ошибке генерируем IRQ сразу
                         i8272_irq();

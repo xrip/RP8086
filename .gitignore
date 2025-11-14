@@ -2,6 +2,7 @@
 /bin/
 /cmake-*/
 /roms/
+/.claude/
 
 *.ROM
 *.pio.h

@@ -48,11 +48,7 @@ __force_inline static uint8_t port_read8(const uint32_t address) {
 
             {
             // MDA status port
-#if PICO_RP2350
             return port3DA;
-#else
-            return port3DA ^= 9;
-#endif
         }
         case 0 ... 0x0F: {
             return i8237_readport(address);

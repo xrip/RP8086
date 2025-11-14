@@ -8,24 +8,29 @@
 #include <hardware/pio.h>
 #include <pico/time.h>
 
+
 // ============================================================================
 // Compiler hints for branch prediction
 // ============================================================================
 #define likely(x)       __builtin_expect(!!(x), 1)
 #define unlikely(x)     __builtin_expect(!!(x), 0)
-#define VIDEORAM_SIZE (16384)
-#if PICO_RP2350
-#define PICO_CLOCK_SPEED     (500 * MHZ)  // Raspberry Pi Pico clock frequency
-#define PSRAM_FREQ_MHZ (166* MHZ)
-#define I8086_CLOCK_SPEED    (5750 * KHZ)  // i8086 clock frequency
-#define RAM_SIZE               (736 * 1024)                       // 192KB RAM (maximum that fits)
-#else
-#define PICO_CLOCK_SPEED     (400 * MHZ)  // Raspberry Pi Pico clock frequency
 
-#define I8086_CLOCK_SPEED    (3250 * KHZ)  // i8086 clock frequency
-#define RAM_SIZE               ((256-64) * 1024)                       // 192KB RAM (maximum that fits)
-#endif
-#define CONFIG_I8086_DUTY_CYCLE 33      // 33% duty cycle (required for i8086)
+#define PICO_CLOCK_SPEED     (500 * MHZ)  // Raspberry Pi Pico clock frequency
+#define PSRAM_FREQ_MHZ       (166 * MHZ)
+
+
+
+
+#define I8086_CLOCK_SPEED    (5750 * KHZ)  // i8086 clock frequency
+#define I8086_DUTY_CYCLE     (33)          // 33% duty cycle required for i8086
+
+#define VIDEORAM_SIZE        (16 * 1024)
+#define RAM_SIZE             (736 * 1024)
+#define UMB_SIZE             (128 * 1024)
+
+#define BIOS_ROM_SIZE        (8 * 1024)                         // 8KB BIOS
+#define BIOS_ROM_BASE        (0x100000 - BIOS_ROM_SIZE)         // 0xFE000-0xFFFFF
+
 
 // ============================================================================
 // GPIO Pin Configuration
@@ -34,8 +39,15 @@
 #define RESET_PIN        28             // Reset output (active HIGH)
 #define CLOCK_PIN        29             // Clock output to i8086
 
+#define BEEPER_PIN        46            // PC Speaker pin]
 
-#define BEEPER_PIN        46
+
+// ============================================================================
+// Bus Control Signal Macros
+// ============================================================================
+#define MIO (1 << 24)  // Memory/IO bit in bus state
+#define BHE (1 << 25)  // Bus High Enable bit in bus state
+
 
 // ============================================================================
 // PIO Configuration
@@ -45,40 +57,20 @@
 #define WRITE_IRQ        PIO0_IRQ_0
 #define READ_IRQ         PIO0_IRQ_1
 
-// ============================================================================
-// Memory Configuration
-// ============================================================================
+#define IMPORT_BIN(file, sym) asm (\
+".section .flashdata."#sym"\n"                  /* Change section */\
+".balign 4\n"                           /* Word alignment */\
+".global " #sym "\n"                    /* Export the object address */\
+#sym ":\n"                              /* Define the object label */\
+".incbin \"" file "\"\n"                /* Import the file */\
+".global _sizeof_" #sym "\n"            /* Export the object size */\
+".set _sizeof_" #sym ", . - " #sym "\n" /* Define the object size */\
+".balign 4\n"                           /* Word alignment */\
+".section \".text\"\n");                 /* Restore section */
 
-#define BIOS_ROM_SIZE          8192                               // 8KB BIOS
-#define BIOS_ROM_BASE          (0x100000 - BIOS_ROM_SIZE)         // 0xFE000-0xFFFFF
 
-// ============================================================================
-// Bus Control Signal Macros
-// ============================================================================
-#define MIO (1 << 24)  // Memory/IO bit in bus state
-#define BHE (1 << 25)  // Bus High Enable bit in bus state
-
-// ============================================================================
-// Inline Helper Functions
-// ============================================================================
-// Универсальная функция записи с поддержкой BHE (8/16-bit operations)
-__always_inline static void write_to(uint8_t *destination, const uint32_t address,
-                                       const uint16_t data, const bool bhe) {
-    const uint32_t A0 = address & 1;
-
-    // Fast path: aligned 16-bit write (90% случаев)
-    if (likely(!(bhe | A0))) {
-        *(uint16_t *)&destination[address] = data;
-        return;
-    }
-
-    // Slow path: byte write
-    const uint8_t byte_val = A0 ? data >> 8 : data & 0xFF;
-    destination[address] = byte_val;
-}
-
-// Общедоступные массивы и структу
-
+// Общедоступные массивы и структуры
+extern uint8_t UMB[UMB_SIZE] __attribute__((aligned(4)));
 extern uint8_t RAM[RAM_SIZE] __attribute__((aligned(4)));
 extern uint8_t VIDEORAM[VIDEORAM_SIZE] __attribute__((aligned(4)));
 
@@ -193,3 +185,5 @@ typedef struct {
     uint8_t port3DA;
     bool updated;
 } cga_s;
+
+

@@ -1,9 +1,13 @@
 #include "common.h"
-#include "../rom/fdd.h"
 #include "hardware/i8237.h"
 #include "hardware/i8272.h"
 
+IMPORT_BIN("./binary/GLABIOS.ROM", BIOS);
+IMPORT_BIN("./binary/fdd.img", FLOPPY);
+
+
 uint8_t RAM[RAM_SIZE] __attribute__((aligned(4), section(".psram")));
+uint8_t UMB[UMB_SIZE] __attribute__((aligned(4), section(".psram")));
 uint8_t VIDEORAM[VIDEORAM_SIZE] __attribute__((aligned(4)));
 
 i8259_s i8259 __attribute__((aligned(4))) = {
@@ -29,3 +33,6 @@ uart_16550_s uart __attribute__((aligned(4))) = {
 
 mc6845_s mc6845 __attribute__((aligned(4)));
 cga_s cga __attribute__((aligned(4)));
+
+// IMPORTANT! Dont remove, hack to create .flashdata section for linker
+const uint64_t __in_flash("DUMMY") PICO_CLOCK_SPEED_MHZ = PICO_CLOCK_SPEED;

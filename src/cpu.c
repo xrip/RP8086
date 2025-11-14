@@ -16,7 +16,7 @@ void start_cpu_clock(void)
         div *= 10;  // Try 1, 10, 100, 1000
     }
 
-    const uint32_t level = ((wrap + 1) * CONFIG_I8086_DUTY_CYCLE) / 100;
+    const uint32_t level = ((wrap + 1) * I8086_DUTY_CYCLE) / 100;
 
     gpio_set_function(CLOCK_PIN, GPIO_FUNC_PWM);
 
