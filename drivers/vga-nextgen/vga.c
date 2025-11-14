@@ -26,7 +26,6 @@ const struct pio_program pio_program_VGA = {
     .origin = -1,
 };
 
-extern int cursor_blink_state;
 static uint32_t *lines_pattern[4] __attribute__((aligned(4))) = {0};
 static uint32_t *lines_pattern_data = NULL;
 static int _SM_VGA = -1;
@@ -144,8 +143,9 @@ void __time_critical_func() dma_handler_VGA() {
             const bool is_cursor_line_active =
                 mc6845.cursor_blink_state &&
                 (screen_y == mc6845.cursor_y) &&
-                (mc6845.r.cursor_start <= mc6845.r.cursor_end) &&
-                (glyph_line >= mc6845.r.cursor_start && glyph_line <= mc6845.r.cursor_end);
+                (likely(mc6845.r.cursor_start <= mc6845.r.cursor_end)
+                    ? (glyph_line >= mc6845.r.cursor_start && glyph_line <= mc6845.r.cursor_end)
+                    : (glyph_line >= mc6845.r.cursor_start || glyph_line <= mc6845.r.cursor_end));
 
             for (int char_x = 0; char_x < mc6845.r.h_displayed; char_x += 2) {
                 uint32_t dword = *text_buffer_line++;
@@ -153,7 +153,7 @@ void __time_critical_func() dma_handler_VGA() {
                 // Первый символ из пачки
                 uint8_t glyph_pixels = font_8x8[(dword & 0xFF) * char_scanlines + glyph_line];
                 if (is_cursor_line_active && (char_x == mc6845.cursor_x)) {
-                    glyph_pixels = ~glyph_pixels;
+                    glyph_pixels = 0xFF;
                 }
                 dword >>= 8;
                 const uint16_t *palette_color = &txt_palette_fast[4 * (dword & 0xFF)];
@@ -172,7 +172,7 @@ void __time_critical_func() dma_handler_VGA() {
                 dword >>= 8;
                 glyph_pixels = font_8x8[(dword & 0xFF) * char_scanlines + glyph_line];
                 if (is_cursor_line_active && (char_x + 1 == mc6845.cursor_x)) {
-                    glyph_pixels = ~glyph_pixels;
+                    glyph_pixels = 0xFF;
                 }
                 dword >>= 8;
                 palette_color = &txt_palette_fast[4 * dword];
@@ -206,16 +206,19 @@ void __time_critical_func() dma_handler_VGA() {
             const bool is_cursor_line_active =
                 mc6845.cursor_blink_state &&
                 (screen_y == mc6845.cursor_y) &&
-                (mc6845.r.cursor_start <= mc6845.r.cursor_end) &&
-                (glyph_line >= mc6845.r.cursor_start && glyph_line <= mc6845.r.cursor_end);
+                (likely(mc6845.r.cursor_start <= mc6845.r.cursor_end)
+                    ? (glyph_line >= mc6845.r.cursor_start && glyph_line <= mc6845.r.cursor_end)
+                    : (glyph_line >= mc6845.r.cursor_start || glyph_line <= mc6845.r.cursor_end));
 
             for (int char_x = 0; char_x < mc6845.r.h_displayed ; char_x+=2) {
                 uint32_t dword = *text_buffer_line++;
 
                 // Первый символ из пачки
-                uint8_t glyph_pixels = font_8x8[(dword & 0xFF) * char_scanlines + glyph_line];
-                if (is_cursor_line_active && (char_x == mc6845.cursor_x)) {
-                    glyph_pixels = ~glyph_pixels; // Инвертируем все 2-битные пиксели разом
+                uint8_t glyph_pixels;
+                if (unlikely(is_cursor_line_active && (char_x == mc6845.cursor_x))) {
+                    glyph_pixels = 0xff; // Инвертируем все 2-битные пиксели разом
+                } else {
+                    glyph_pixels = font_8x8[(dword & 0xFF) * char_scanlines + glyph_line];
                 }
                 dword >>= 8;
                 const uint16_t *palette_color = &txt_palette_fast[4 * (dword & 0xFF)];
@@ -227,9 +230,10 @@ void __time_critical_func() dma_handler_VGA() {
 
                 // Первый символ из второй символ из пачки
                 dword >>= 8;
-                glyph_pixels = font_8x8[(dword & 0xFF) * char_scanlines + glyph_line];
-                if (is_cursor_line_active && (char_x+1 == mc6845.cursor_x)) {
-                    glyph_pixels = ~glyph_pixels; // Инвертируем все 2-битные пиксели разом
+                if (unlikely(is_cursor_line_active && ((char_x+1) == mc6845.cursor_x))) {
+                    glyph_pixels = 0xff; // Инвертируем все 2-битные пиксели разом
+                } else {
+                    glyph_pixels = font_8x8[(dword & 0xFF) * char_scanlines + glyph_line];
                 }
                 dword >>= 8;
                 palette_color = &txt_palette_fast[4 * dword];
