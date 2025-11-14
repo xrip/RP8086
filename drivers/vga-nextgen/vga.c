@@ -141,7 +141,6 @@ void __time_critical_func() dma_handler_VGA() {
             //указатель откуда начать считывать символы
             const uint32_t *__restrict text_buffer_line = (uint32_t*) VIDEORAM + mc6845.vram_offset + __fast_mul(screen_y, mc6845.r.h_displayed / 2);
             const bool is_cursor_line_active =
-                mc6845.cursor_blink_state &&
                 (screen_y == mc6845.cursor_y) &&
                 (likely(mc6845.r.cursor_start <= mc6845.r.cursor_end)
                     ? (glyph_line >= mc6845.r.cursor_start && glyph_line <= mc6845.r.cursor_end)
@@ -152,11 +151,14 @@ void __time_critical_func() dma_handler_VGA() {
 
                 // Первый символ из пачки
                 uint8_t glyph_pixels = font_8x8[(dword & 0xFF) * char_scanlines + glyph_line];
-                if (is_cursor_line_active && (char_x == mc6845.cursor_x)) {
-                    glyph_pixels = 0xFF;
-                }
                 dword >>= 8;
-                const uint16_t *palette_color = &txt_palette_fast[4 * (dword & 0xFF)];
+                uint8_t color = dword;
+                if (unlikely(mc6845.cursor_blink_state && is_cursor_line_active && (char_x == mc6845.cursor_x))) {
+                    glyph_pixels = 0xff; // Инвертируем все 2-битные пиксели разом
+                } else if (unlikely(mc6845.cursor_blink_state && mc6845.text_blinking_mask == 0x7F && color & 0x80)) {
+                    glyph_pixels = 0x00;
+                }
+                const uint16_t *palette_color = &txt_palette_fast[4 * (color & mc6845.text_blinking_mask)];
 
                 // генерируем 4 блока по 2-битным пикселям (удвоение по горизонтали для 40-колоночного режима)
                 for (int k = 0; k < 4; ++k) {
@@ -171,11 +173,14 @@ void __time_critical_func() dma_handler_VGA() {
                 // Второй символ из пачки
                 dword >>= 8;
                 glyph_pixels = font_8x8[(dword & 0xFF) * char_scanlines + glyph_line];
-                if (is_cursor_line_active && (char_x + 1 == mc6845.cursor_x)) {
-                    glyph_pixels = 0xFF;
-                }
                 dword >>= 8;
-                palette_color = &txt_palette_fast[4 * dword];
+                color = dword;
+                if (unlikely(mc6845.cursor_blink_state && is_cursor_line_active && (char_x + 1 == mc6845.cursor_x))) {
+                    glyph_pixels = 0xff; // Инвертируем все 2-битные пиксели разом
+                } else if (unlikely(mc6845.cursor_blink_state && mc6845.text_blinking_mask == 0x7F && color & 0x80)) {
+                    glyph_pixels = 0x00;
+                }
+                palette_color = &txt_palette_fast[4 * (color & mc6845.text_blinking_mask)];
 
                 // генерируем 4 блока по 2-битным пикселям (удвоение по горизонтали для 40-колоночного режима)
                 for (int k = 0; k < 4; ++k) {
@@ -204,7 +209,6 @@ void __time_critical_func() dma_handler_VGA() {
             //указатель откуда начать считывать символы
             const uint32_t *__restrict text_buffer_line = (uint32_t*) VIDEORAM + mc6845.vram_offset + __fast_mul(screen_y, mc6845.r.h_displayed / 2);
             const bool is_cursor_line_active =
-                mc6845.cursor_blink_state &&
                 (screen_y == mc6845.cursor_y) &&
                 (likely(mc6845.r.cursor_start <= mc6845.r.cursor_end)
                     ? (glyph_line >= mc6845.r.cursor_start && glyph_line <= mc6845.r.cursor_end)
@@ -219,7 +223,7 @@ void __time_critical_func() dma_handler_VGA() {
 
                 dword >>= 8;
                 uint8_t color = dword;
-                if (unlikely(is_cursor_line_active && (char_x == mc6845.cursor_x))) {
+                if (unlikely(mc6845.cursor_blink_state && is_cursor_line_active && (char_x == mc6845.cursor_x))) {
                     glyph_pixels = 0xff; // Инвертируем все 2-битные пиксели разом
                 } else if (unlikely(mc6845.cursor_blink_state && mc6845.text_blinking_mask == 0x7F && color & 0x80)) {
                     glyph_pixels = 0x00;
@@ -237,7 +241,7 @@ void __time_critical_func() dma_handler_VGA() {
                 dword >>= 8;
                 color = dword;
 
-                if (unlikely(is_cursor_line_active && ((char_x+1) == mc6845.cursor_x))) {
+                if (unlikely(mc6845.cursor_blink_state && is_cursor_line_active && ((char_x+1) == mc6845.cursor_x))) {
                     glyph_pixels = 0xff; // Инвертируем все 2-битные пиксели разом
                 } else if (unlikely(mc6845.cursor_blink_state && mc6845.text_blinking_mask == 0x7F && color & 0x80)) {
                     glyph_pixels = 0x00;
