@@ -175,6 +175,7 @@ typedef struct {
     uint16_t vram_offset;
 
     bool cursor_blink_state;
+    uint8_t text_blinking_mask;  // 0x80 = enabled, 0x00 = disabled (маска для бита атрибута)
     uint8_t cursor_x;
     uint8_t cursor_y;
 } mc6845_s;

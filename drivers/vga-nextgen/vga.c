@@ -214,14 +214,17 @@ void __time_critical_func() dma_handler_VGA() {
                 uint32_t dword = *text_buffer_line++;
 
                 // Первый символ из пачки
-                uint8_t glyph_pixels;
+                uint8_t glyph_pixels = font_8x8[(dword & 0xFF) * char_scanlines + glyph_line];
+
+
+                dword >>= 8;
+                uint8_t color = dword;
                 if (unlikely(is_cursor_line_active && (char_x == mc6845.cursor_x))) {
                     glyph_pixels = 0xff; // Инвертируем все 2-битные пиксели разом
-                } else {
-                    glyph_pixels = font_8x8[(dword & 0xFF) * char_scanlines + glyph_line];
+                } else if (unlikely(mc6845.cursor_blink_state && mc6845.text_blinking_mask == 0x7F && color & 0x80)) {
+                    glyph_pixels = 0x00;
                 }
-                dword >>= 8;
-                const uint16_t *palette_color = &txt_palette_fast[4 * (dword & 0xFF)];
+                const uint16_t *palette_color = &txt_palette_fast[4 * (color & mc6845.text_blinking_mask)];
 
                 *output_buffer_16bit++ = palette_color[glyph_pixels & 3];
                 *output_buffer_16bit++ = palette_color[glyph_pixels >> 2 & 3];
@@ -230,13 +233,17 @@ void __time_critical_func() dma_handler_VGA() {
 
                 // Первый символ из второй символ из пачки
                 dword >>= 8;
+                glyph_pixels = font_8x8[(dword & 0xFF) * char_scanlines + glyph_line];
+                dword >>= 8;
+                color = dword;
+
                 if (unlikely(is_cursor_line_active && ((char_x+1) == mc6845.cursor_x))) {
                     glyph_pixels = 0xff; // Инвертируем все 2-битные пиксели разом
-                } else {
-                    glyph_pixels = font_8x8[(dword & 0xFF) * char_scanlines + glyph_line];
+                } else if (unlikely(mc6845.cursor_blink_state && mc6845.text_blinking_mask == 0x7F && color & 0x80)) {
+                    glyph_pixels = 0x00;
                 }
-                dword >>= 8;
-                palette_color = &txt_palette_fast[4 * dword];
+
+                palette_color = &txt_palette_fast[4 * (color & mc6845.text_blinking_mask)];
 
                 *output_buffer_16bit++ = palette_color[glyph_pixels & 3];
                 *output_buffer_16bit++ = palette_color[glyph_pixels >> 2 & 3];

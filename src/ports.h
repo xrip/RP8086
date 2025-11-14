@@ -223,6 +223,7 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
         case 0x3B8:
         case 0x3D8: {
             cga.port3D8 = data; // Store the raw register value
+            mc6845.text_blinking_mask = (data & 0b100000) ? 0x7F : 0xFF; // BIT 5: blinking enabled (маска для бита атрибута)
             cga.updated = true;
             return;
         }
