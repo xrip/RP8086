@@ -19,9 +19,11 @@ extern uint8_t current_scancode; // Keyboard scancode (defined in main.c)
 // ============================================================================
 uint8_t port3DA = 0; // VGA status port state
 uint8_t port61 = 0;  // System Control Port B (8255 PPI Port B)
+bool tga_flip_flop = false;
 
 extern cga_s cga;
 extern mc6845_s mc6845;
+extern uint32_t cga_palette[16];
 
 // Keyboard controller (8042) state
 static uint8_t keyboard_command_byte = 0x45; // Default: interrupts enabled, system flag set
@@ -30,6 +32,7 @@ static uint8_t keyboard_response_buffer = 0;
 static bool keyboard_has_response = false;
 
 static uint8_t crtc_index = 0;
+static uint8_t tga_index = 0;
 extern uint8_t videomode;
 
 __force_inline static uint8_t port_read8(const uint32_t address) {
@@ -44,12 +47,8 @@ __force_inline static uint8_t port_read8(const uint32_t address) {
             return cga.port3D8;
         case 0x3D9:
             return cga.port3D9;
-        case 0x3DA:
-
-            {
-            // MDA status port
+        case 0x3DA: // MC6845 status port
             return port3DA;
-        }
         case 0 ... 0x0F: {
             return i8237_readport(address);
         }
@@ -233,6 +232,22 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
             cga.updated = true;
             return;
 
+        case 0x3DA:
+            if (tga_flip_flop == 0) {
+                tga_index = data & 0x1F;
+            } else {
+                if (tga_index == 3) {
+                    cga.port3DA_tandy = data;
+                } else if (tga_index & 0x10) {
+                    graphics_set_palette(tga_index & 0xF, cga_palette[data & 0xF]);
+                }
+                printf("3DA: Tandy video write %x %x\n", tga_index, data);
+            }
+            tga_flip_flop ^= 1;
+            return;
+        case 0x3DE: {
+            printf("3DE: Tandy video write %x %x\n", tga_index, data);
+        }
         case 0x3F2: case 0x3F5: {
             return i8272_writeport(address, data);
         }

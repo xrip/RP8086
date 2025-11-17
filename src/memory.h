@@ -36,12 +36,17 @@ __force_inline static uint16_t memory_read(const uint32_t address) {
 
     // Video RAM: CGA 0xB8000-0xB0FFF (16KB)
     if ((address - 0xB8000) < 0x8000) {
-        return *(uint16_t *)&VIDEORAM[address & 0x3FFF];
+        return *(uint16_t *)&VIDEORAM[address & 0x7FFF];
     }
 
     if ((address - 0xD0000) < UMB_SIZE) {
         return *(uint16_t *)&UMB[address - 0xD0000];
     }
+
+    if (address == 0xFC000) {
+        return 0xff21;
+    }
+
 
     // BIOS ROM: 0xFE000-0xFFFFF (8KB)
     if (address >= BIOS_ROM_BASE) {
@@ -64,7 +69,7 @@ __force_inline static void memory_write(const uint32_t address, const uint16_t d
 
     // Video RAM: CGA 0xB8000-0xBFFFF (32KB)
     if ((address - 0xB8000) < 0x8000) {
-        write_to(VIDEORAM, address & 0x3FFF, data, bhe);
+        write_to(VIDEORAM, address & 0x7FFF, data, bhe);
         return;
     }
 

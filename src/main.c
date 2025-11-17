@@ -213,6 +213,7 @@ void psram_init(const int cs_pin) {
     // detect a chip size
 }
 
+// Corrected CGA palette from https://int10h.org/blog/2022/06/ibm-5153-color-true-cga-palette/
 const uint32_t cga_palette[16] = {
     //R, G, B
     0x000000, // 0 black
@@ -291,7 +292,6 @@ bool handleScancode(const uint32_t ps2scancode) {
     next_frame = delayed_by_us(next_frame, 16666);
 
 
-
     bool video_enabled = true;
 
     graphics_init();
@@ -310,7 +310,6 @@ bool handleScancode(const uint32_t ps2scancode) {
     uint32_t frame_counter = 0;
     uint8_t old_videomode = 0;
     while (true) {
-
         // Отрисовка MDA фреймбуфера
         if (absolute_time_diff_us(next_frame, get_absolute_time()) >= 0) {
 #ifndef DEBUG
@@ -321,12 +320,15 @@ bool handleScancode(const uint32_t ps2scancode) {
 
 
             if (cga.updated) {
-                if (unlikely(cga.port3D8 & 0b10)) { // Bit 1: Graphics/Text Select
+                if (unlikely(cga.port3D8 & 0b10)) {
+                    // Bit 1: Graphics/Text Select
                     if (unlikely(cga.port3D8 & 0b10000)) {
-                        videomode = CGA_640x200x2;
+                        {
+                            videomode = CGA_640x200x2;
 
-                        graphics_set_palette(0, 0);
-                        graphics_set_palette(1, cga_palette[cga.port3D9 & 0b1111]);
+                            graphics_set_palette(0, 0);
+                            graphics_set_palette(1, cga_palette[cga.port3D9 & 0b1111]);
+                        }
                     } else {
                         videomode = CGA_320x200x4;
                         // If colorburst set -- 3rd palette, else from palette register
@@ -346,7 +348,17 @@ bool handleScancode(const uint32_t ps2scancode) {
                     }
                 }
 
+                if (unlikely(cga.port3DA_tandy /* == 0x20 */)) {
+                    // printf("Tandy hack detected: %i\n", videomode);
+                    // videomode = (cga.port3D8 & 0b10000) ? TGA_320x200x16 : TGA_160x200x16;
+                    videomode = videomode == CGA_640x200x2 ? TGA_320x200x16 : TGA_160x200x16;
+                    for (int i = 0; i < 16; i++) {
+                        graphics_set_palette(i, cga_palette[i]);
+                    }
+                }
+
                 if (videomode != old_videomode) {
+                    // printf("Videomode %i\n", videomode);
                     graphics_set_mode(videomode);
                     old_videomode = videomode;
                 }
@@ -354,21 +366,23 @@ bool handleScancode(const uint32_t ps2scancode) {
                 cga.updated = false;
             }
 #if DEBUG
-            printf("\033[H"); // cursor home
-            printf("\033[2J"); // clear screen
-            printf("\033[3J");       // clear scrollback
-            printf("\033[40m"); // black background
-            printf("\033[?25l"); // hide cursor (reduce flicker)
-            for (int y = 0; y < 25; y++) {
-                const uint32_t *framebuffer_line = (uint32_t *) VIDEORAM + __fast_mul(y, 40);
-                for (int x = 40; x--;) {
-                    const uint32_t dword = *framebuffer_line++ & 0x00FF00FF;
-                    putchar_raw(dword);
-                    putchar_raw(dword >> 16);
-                }
-                if (y != 24) {
-                    putchar_raw(0x0D);
-                    putchar_raw(0x0A);
+            if (video_enabled) {
+                printf("\033[H"); // cursor home
+                printf("\033[2J"); // clear screen
+                printf("\033[3J"); // clear scrollback
+                printf("\033[40m"); // black background
+                printf("\033[?25l"); // hide cursor (reduce flicker)
+                for (int y = 0; y < 25; y++) {
+                    const uint32_t *framebuffer_line = (uint32_t *) VIDEORAM + __fast_mul(y, 40);
+                    for (int x = 40; x--;) {
+                        const uint32_t dword = *framebuffer_line++ & 0x00FF00FF;
+                        putchar_raw(dword);
+                        putchar_raw(dword >> 16);
+                    }
+                    if (y != 24) {
+                        putchar_raw(0x0D);
+                        putchar_raw(0x0A);
+                    }
                 }
             }
 #endif

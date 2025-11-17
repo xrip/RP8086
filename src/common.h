@@ -24,7 +24,7 @@
 #define I8086_CLOCK_SPEED    (5750 * KHZ)  // i8086 clock frequency
 #define I8086_DUTY_CYCLE     (33)          // 33% duty cycle required for i8086
 
-#define VIDEORAM_SIZE        (16 * 1024)
+#define VIDEORAM_SIZE        (32 * 1024)   // Tandy/PC Jr compat
 #define RAM_SIZE             (736 * 1024)
 #define UMB_SIZE             (128 * 1024)
 
@@ -184,6 +184,7 @@ typedef struct {
     uint8_t port3D8;
     uint8_t port3D9;
     uint8_t port3DA;
+    uint8_t port3DA_tandy;
     bool updated;
 } cga_s;
 
