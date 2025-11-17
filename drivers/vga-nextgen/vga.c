@@ -310,7 +310,7 @@ void __time_critical_func() dma_handler_VGA() {
             const uint32_t *__restrict tga_row = (uint32_t*) (VIDEORAM + __fast_mul(y >> 1, 80) + ((y & 1) << 13));
             // const uint32_t *tga_row = &VIDEORAM[tga_offset + __fast_mul(y >> 1, 80) + ((y & 1) << 13)];
             for (int x = 20; x--;) {
-                uint32_t dword = *tga_row++; // Fetch 2 pixels from TGA memory
+                uint32_t dword = *tga_row++; // Fetch 8 pixels from TGA memory
                 uint8_t two_pixels = dword & 0xFF;
                 uint8_t pixel1_color = two_pixels >> 4;
                 uint8_t pixel2_color = two_pixels & 15;
@@ -350,12 +350,16 @@ void __time_critical_func() dma_handler_VGA() {
             break;
         }
         case TGA_320x200x16: {
-            //4bit buf
-            const register uint8_t *tga_row = &VIDEORAM[(y & 3) * 8192 + __fast_mul(y >> 2, 160)];
-            for (int x = 320 / 2; x--;) {
-                const uint8_t two_pixels = *tga_row++; // Fetch 2 pixels from TGA memory
-                *output_buffer_16bit++ = current_palette[two_pixels >> 4];
-                *output_buffer_16bit++ = current_palette[two_pixels & 15];
+            //4bit buf, 32-bit reads
+            const uint32_t *__restrict tga_row = (uint32_t*) (VIDEORAM + (y & 3) * 8192 + __fast_mul(y >> 2, 160));
+            for (int x = 40; x--;) {
+                const uint32_t dword = *tga_row++; // Fetch 8 pixels from TGA memory
+
+                // Обработка 4 байтов (8 пикселей)
+                *output_buffer_32bit++ = current_palette[dword & 15] << 16 | current_palette[(dword >> 4) & 15];
+                *output_buffer_32bit++ = current_palette[(dword >> 8) & 15] << 16 | current_palette[(dword >> 12) & 15];
+                *output_buffer_32bit++ = current_palette[(dword >> 16) & 15] << 16 | current_palette[(dword >> 20) & 15];
+                *output_buffer_32bit++ = current_palette[(dword >> 24) & 15] << 16 | current_palette[(dword >> 28)];
             }
             break;
         }
