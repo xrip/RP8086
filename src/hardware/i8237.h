@@ -48,35 +48,29 @@ __force_inline static void i8237_writeport(const uint16_t port_number, const uin
                     // HIGH byte: сохраняем LOW, записываем HIGH
                     dma_channels[channel].count = (dma_channels[channel].count & 0x00FF) | ((uint16_t) data << 8);
                 } else {
-                    // LOW byte: обнуляем HIGH, записываем только LOW
-                    dma_channels[channel].count = (uint16_t) data;
+                    // LOW byte: СОХРАНЯЕМ HIGH, записываем LOW
+                    dma_channels[channel].count = (dma_channels[channel].count & 0xFF00) | (uint16_t) data;
                 }
                 dma_channels[channel].reload_count = dma_channels[channel].count;
-                if (channel == 2) {
-                    debug_log("[%llu] DMA COUNT: CH2 port=0x%02X, flipflop=%d, data=0x%02X, count=0x%04X\n",
-                           to_us_since_boot(get_absolute_time()), port_number, byte_pointer_flipflop, data, dma_channels[channel].count);
-                }
+                    debug_log("[%llu] DMA COUNT: CH%i port=0x%02X, flipflop=%d, data=0x%02X, count=0x%04X\n",
+                           to_us_since_boot(get_absolute_time()), channel, port_number, byte_pointer_flipflop, data, dma_channels[channel].count);
             } else {
                 // Программируем ТОЛЬКО reload_address (base register)
                 if (byte_pointer_flipflop) {
                     // HIGH byte (второй вызов): сохраняем LOW byte, записываем HIGH
                     dma_channels[channel].reload_address = (dma_channels[channel].reload_address & 0x00FF) | ((uint16_t) data << 8);
 
-                    // CRITICAL FIX: Если канал активен (не masked), обновляем current address тоже!
-                    if (!dma_channels[channel].masked) {
-                        dma_channels[channel].address = dma_channels[channel].reload_address;
-                    }
-                    if (channel == 2) {
-                        debug_log("[%llu] DMA ADDR HIGH: CH2 port=0x%02X, data=0x%02X, reload_address=0x%04X\n",
-                               to_us_since_boot(get_absolute_time()), port_number, data, dma_channels[channel].reload_address);
-                    }
+                    // CRITICAL FIX: Копируем reload → current ВСЕГДА (для совместимости с BIOS тестами)
+                    // Turbo XT BIOS читает адрес ДО unmask, поэтому current должен обновляться сразу
+                    dma_channels[channel].address = dma_channels[channel].reload_address;
+
+                        debug_log("[%llu] DMA ADDR HIGH: CH%d port=0x%02X, data=0x%02X, reload_address=0x%04X\n",
+                               to_us_since_boot(get_absolute_time()), channel, port_number, data, dma_channels[channel].reload_address);
                 } else {
-                    // LOW byte (первый вызов): обнуляем HIGH byte, записываем только LOW
-                    dma_channels[channel].reload_address = (uint16_t) data;
-                    if (channel == 2) {
-                        debug_log("[%llu] DMA ADDR LOW: CH2 port=0x%02X, data=0x%02X, reload_address=0x%04X\n",
-                               to_us_since_boot(get_absolute_time()), port_number, data, dma_channels[channel].reload_address);
-                    }
+                    // LOW byte (первый вызов): СОХРАНЯЕМ HIGH byte, записываем LOW
+                    dma_channels[channel].reload_address = (dma_channels[channel].reload_address & 0xFF00) | (uint16_t) data;
+                        debug_log("[%llu] DMA ADDR LOW: CH%i port=0x%02X, data=0x%02X, reload_address=0x%04X\n",
+                               to_us_since_boot(get_absolute_time()), channel, port_number, data, dma_channels[channel].reload_address);
                 }
             }
 
@@ -93,6 +87,7 @@ __force_inline static void i8237_writeport(const uint16_t port_number, const uin
             debug_log("DMA COMMAND: mem2mem=%d, auto_init=%d\n", memory_to_memory_enabled, (data >> 5) & 1);
             break;
         case DMA_REQUEST_REGISTER: //DMA request register
+            debug_log("DMA CH%d DREQ\n", data & 3, (data >> 2) & 1);
             dma_channels[data & 3].dreq = (data >> 2) & 1;
             break;
         case DMA_CHANNEL_MASK_REGISTER: {
@@ -143,10 +138,8 @@ __force_inline static void i8237_writeport(const uint16_t port_number, const uin
                 if (dma_channels[channel].masked && !mask) {
                     dma_channels[channel].address = dma_channels[channel].reload_address;
                     dma_channels[channel].count = dma_channels[channel].reload_count;
-                    if (channel == 2) {
-                        debug_log("DMA UNMASK (0x0F): CH2 address=0x%04X, count=0x%04X (reload→current)\n",
+                        debug_log("DMA UNMASK (0x0F): CH%d address=0x%04X, count=0x%04X (reload→current)\n", channel,
                                dma_channels[channel].address, dma_channels[channel].count);
-                    }
                 }
 
                 dma_channels[channel].masked = mask;
@@ -175,10 +168,8 @@ __force_inline static void i8237_writepage(const uint16_t port_number, const uin
             return;
     }
     dma_channels[channel].page = (uint32_t) data << 16;
-    if (channel == 2) {
-        debug_log("[%llu] DMA PAGE WRITE: port=0x%02X, channel=%d, page=0x%02X, final_addr=0x%05X\n",
-               to_us_since_boot(get_absolute_time()), port_number, channel, data, dma_channels[channel].page | dma_channels[channel].reload_address);
-    }
+        debug_log("[%llu] CH%d DMA PAGE WRITE: port=0x%02X, channel=%d, page=0x%02X, final_addr=0x%05X\n",
+               to_us_since_boot(get_absolute_time()), channel, port_number, channel, data, dma_channels[channel].page | dma_channels[channel].reload_address);
 }
 
 __force_inline static uint8_t i8237_readport(const uint16_t port_number) {
@@ -223,9 +214,11 @@ __force_inline static uint8_t i8237_readport(const uint16_t port_number) {
                     register_value |= 1 << (channel + 4);  // TC status
                     dma_channels[channel].finished = 0;  // Clear TC flag on read (per Intel 8237A spec)
                 }
+
+                debug_log("[%llu] CH%i DMA STATUS READ: 0x%02X (DREQ=0x%01X, TC=0x%01X)\n",
+       to_us_since_boot(get_absolute_time()), channel, register_value, register_value & 0x0F, (register_value >> 4) & 0x0F);
             }
-            debug_log("[%llu] DMA STATUS READ: 0x%02X (DREQ=0x%01X, TC=0x%01X)\n",
-                   to_us_since_boot(get_absolute_time()), register_value, register_value & 0x0F, (register_value >> 4) & 0x0F);
+
         }
     }
     return register_value;
@@ -297,16 +290,19 @@ __force_inline static uint8_t i8237_read(const uint8_t channel, const uint8_t * 
 // DMA Transfer (синхронная передача для корректности)
 // ============================================================================
 __force_inline static void dma_start_transfer(const uint8_t channel_index, const uint8_t *src, const uint8_t irq) {
-    extern uint8_t RAM[];
+    // extern uint8_t RAM[];
     dma_channel_s *channel = &dma_channels[channel_index];
 
-    if (unlikely(channel->masked)) {
+    /*if (unlikely(channel->masked)) {
         return;
-    }
+    }*/
 
     // Вычисляем физический адрес назначения
     const uint32_t dest_addr = channel->page + channel->address;
     const size_t size = (uint32_t)channel->count + 1;
+    channel->irq = irq;
+    channel->data_source = src;
+    channel->dreq = 1;
 /*
     // Проверка границ RAM
     if (unlikely(dest_addr >= RAM_SIZE)) {
@@ -320,6 +316,7 @@ __force_inline static void dma_start_transfer(const uint8_t channel_index, const
     // const uint32_t max_size = RAM_SIZE - dest_addr;
     // if (transfer_size > max_size) transfer_size = max_size;
 
+#if 0
     // КРИТИЧНО: выполняем передачу СИНХРОННО (без race condition)
     memcpy(&RAM[dest_addr], src, size);
 
@@ -330,6 +327,7 @@ __force_inline static void dma_start_transfer(const uint8_t channel_index, const
     if (channel->finished && irq) {
         i8259_interrupt(irq);
     }
+#endif
 }
 
 #if defined(DEBUG_I8237)

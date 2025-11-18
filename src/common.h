@@ -2,11 +2,13 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <hardware/vreg.h>
 #include <hardware/clocks.h>
 #include <hardware/sync.h>
 #include <hardware/pio.h>
 #include <pico/time.h>
+
 
 
 // ============================================================================
@@ -115,8 +117,8 @@ typedef struct {
     uint8_t transfer_type;
 
     // Асинхронная передача данных (для polling на Core0)
-    const uint8_t *transfer_source;  // Источник данных (для device→memory)
-    uint8_t irq_number;               // IRQ для генерации при завершении (0 = нет IRQ)
+    const uint8_t *data_source;  // Источник данных (для device→memory)
+    uint8_t irq;               // IRQ для генерации при завершении (0 = нет IRQ)
     bool transfer_active;             // Флаг активной передачи
 } dma_channel_s;
 

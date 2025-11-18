@@ -3,7 +3,9 @@
 #include "hardware/i8272.h"
 
 IMPORT_BIN("./binary/GLABIOS.ROM", BIOS);
-IMPORT_BIN("./binary/fdd.img", FLOPPY);
+// IMPORT_BIN("./binary/landmark.bin", BIOS);
+IMPORT_BIN("./binary/checkit.img", FLOPPY);
+// IMPORT_BIN("./binary/dummy.bin", FLOPPY);
 
 
 uint8_t RAM[RAM_SIZE] __attribute__((aligned(4), section(".psram")));
