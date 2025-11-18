@@ -271,7 +271,7 @@ void __time_critical_func() dma_handler_VGA() {
 
             // 2bit buf, 16 pixels at once, 32-bit writes
             for (int x = 20; x--;) {
-                const uint32_t dword = *cga_row++;
+                const uint32_t dword = *cga_row++; // Fetch 16 pixels from CGA memory
 
                 // младший байт (4 пикселя, 2 записи по 32 бита)
                 *output_buffer_32bit++ = current_palette[(dword >> 6) & 3] | ((uint32_t)current_palette[(dword >> 4) & 3] << 16);
@@ -296,7 +296,7 @@ void __time_critical_func() dma_handler_VGA() {
             auto output_buffer_8bit = (uint8_t *) output_buffer_16bit;
             //1bit buf, 32 pixels at once
             for (int x = 20; x--;) {
-                uint32_t dword = __rbit(__rev(*cga_row++));
+                uint32_t dword = __rbit(__rev(*cga_row++)); // Fetch 32 pixels from CGA memory
 
                 #pragma GCC unroll(32)
                 for (int i = 32; i--;) {
@@ -307,45 +307,33 @@ void __time_critical_func() dma_handler_VGA() {
             break;
         }
         case TGA_160x200x16: {
-            const uint32_t *__restrict tga_row = (uint32_t*) (VIDEORAM + __fast_mul(y >> 1, 80) + ((y & 1) << 13));
-            // const uint32_t *tga_row = &VIDEORAM[tga_offset + __fast_mul(y >> 1, 80) + ((y & 1) << 13)];
+            const uint32_t *__restrict tga_row = (uint32_t*) (VIDEORAM + (y & 1) * 8192 + __fast_mul(y >> 1, 80));
             for (int x = 20; x--;) {
-                uint32_t dword = *tga_row++; // Fetch 8 pixels from TGA memory
-                uint8_t two_pixels = dword & 0xFF;
-                uint8_t pixel1_color = two_pixels >> 4;
-                uint8_t pixel2_color = two_pixels & 15;
+                const uint32_t dword = *tga_row++; // Fetch 8 pixels from TGA memory
 
-                *output_buffer_16bit++ = current_palette[pixel1_color];
-                *output_buffer_16bit++ = current_palette[pixel1_color];
-                *output_buffer_16bit++ = current_palette[pixel2_color];
-                *output_buffer_16bit++ = current_palette[pixel2_color];
+                // Обработка первого байта (2 пикселя, удвоенные по горизонтали = 4 выходных пикселя)
+                uint8_t pixel1 = (dword >> 4) & 15;
+                uint8_t pixel2 = dword & 15;
+                *output_buffer_32bit++ = current_palette[pixel1] << 16 | current_palette[pixel1];
+                *output_buffer_32bit++ = current_palette[pixel2] << 16 | current_palette[pixel2];
 
-                two_pixels = (dword >> 8) & 0xFF;
-                pixel1_color = two_pixels >> 4;
-                pixel2_color = two_pixels & 15;
+                // Обработка второго байта
+                pixel1 = (dword >> 12) & 15;
+                pixel2 = (dword >> 8) & 15;
+                *output_buffer_32bit++ = current_palette[pixel1] << 16 | current_palette[pixel1];
+                *output_buffer_32bit++ = current_palette[pixel2] << 16 | current_palette[pixel2];
 
-                *output_buffer_16bit++ = current_palette[pixel1_color];
-                *output_buffer_16bit++ = current_palette[pixel1_color];
-                *output_buffer_16bit++ = current_palette[pixel2_color];
-                *output_buffer_16bit++ = current_palette[pixel2_color];
+                // Обработка третьего байта
+                pixel1 = (dword >> 20) & 15;
+                pixel2 = (dword >> 16) & 15;
+                *output_buffer_32bit++ = current_palette[pixel1] << 16 | current_palette[pixel1];
+                *output_buffer_32bit++ = current_palette[pixel2] << 16 | current_palette[pixel2];
 
-                two_pixels = (dword >> 16) & 0xFF;
-                pixel1_color = two_pixels >> 4;
-                pixel2_color = two_pixels & 15;
-
-                *output_buffer_16bit++ = current_palette[pixel1_color];
-                *output_buffer_16bit++ = current_palette[pixel1_color];
-                *output_buffer_16bit++ = current_palette[pixel2_color];
-                *output_buffer_16bit++ = current_palette[pixel2_color];
-
-                two_pixels = (dword >> 24) & 0xFF;
-                pixel1_color = two_pixels >> 4;
-                 pixel2_color = two_pixels & 15;
-
-                *output_buffer_16bit++ = current_palette[pixel1_color];
-                *output_buffer_16bit++ = current_palette[pixel1_color];
-                *output_buffer_16bit++ = current_palette[pixel2_color];
-                *output_buffer_16bit++ = current_palette[pixel2_color];
+                // Обработка четвертого байта
+                pixel1 = (dword >> 28);
+                pixel2 = (dword >> 24) & 15;
+                *output_buffer_32bit++ = current_palette[pixel1] << 16 | current_palette[pixel1];
+                *output_buffer_32bit++ = current_palette[pixel2] << 16 | current_palette[pixel2];
             }
             break;
         }
@@ -356,8 +344,8 @@ void __time_critical_func() dma_handler_VGA() {
                 const uint32_t dword = *tga_row++; // Fetch 8 pixels from TGA memory
 
                 // Обработка 4 байтов (8 пикселей)
-                *output_buffer_32bit++ = current_palette[dword & 15] << 16 | current_palette[(dword >> 4) & 15];
-                *output_buffer_32bit++ = current_palette[(dword >> 8) & 15] << 16 | current_palette[(dword >> 12) & 15];
+                *output_buffer_32bit++ = current_palette[dword & 15]         << 16 | current_palette[(dword >> 4) & 15];
+                *output_buffer_32bit++ = current_palette[(dword >> 8) & 15]  << 16 | current_palette[(dword >> 12) & 15];
                 *output_buffer_32bit++ = current_palette[(dword >> 16) & 15] << 16 | current_palette[(dword >> 20) & 15];
                 *output_buffer_32bit++ = current_palette[(dword >> 24) & 15] << 16 | current_palette[(dword >> 28)];
             }

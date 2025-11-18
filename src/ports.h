@@ -19,7 +19,6 @@ extern uint8_t current_scancode; // Keyboard scancode (defined in main.c)
 // ============================================================================
 uint8_t port3DA = 0; // VGA status port state
 uint8_t port61 = 0;  // System Control Port B (8255 PPI Port B)
-bool tga_flip_flop = false;
 
 extern cga_s cga;
 extern mc6845_s mc6845;
@@ -232,22 +231,26 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
             cga.updated = true;
             return;
 
-        case 0x3DA:
-            if (tga_flip_flop == 0) {
+        case 0x3DA: {
+            static bool tga_flip_flop = false;
+
+            if (tga_flip_flop == false) {
                 tga_index = data & 0x1F;
             } else {
                 if (tga_index == 3) {
                     cga.port3DA_tandy = data;
-                } else if (tga_index & 0x10) {
-                    graphics_set_palette(tga_index & 0xF, cga_palette[data & 0xF]);
                 }
-                printf("3DA: Tandy video write %x %x\n", tga_index, data);
+                // else if (tga_index & 0x10) {
+                // graphics_set_palette(tga_index & 0xF, cga_palette[data & 0xF]);
+                // }
+                // printf("3DA: Tandy video write %x %x\n", tga_index, data);
             }
             tga_flip_flop ^= 1;
             return;
-        case 0x3DE: {
-            printf("3DE: Tandy video write %x %x\n", tga_index, data);
         }
+        // case 0x3DE: {
+            // printf("3DE: Tandy video write %x %x\n", tga_index, data);
+        // }
         case 0x3F2: case 0x3F5: {
             return i8272_writeport(address, data);
         }
