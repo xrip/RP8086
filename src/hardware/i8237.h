@@ -15,7 +15,7 @@
 #define DMA_CLEAR_FF 0x0C          // Clear flip-flop port
 #define DMA_STATUS_REGISTER 0x0D
 #define DMA_MASTER_CLEAR 0x0D
-#define DMA_TEMP_REGISTER 0x0E
+#define DMA_CLEAR_MASK_REGISTER 0x0E  // Clear Mask Register (unmask all channels)
 #define DMA_MASK_REGISTER 0x0F
 
 #define DMA_CHANNELS 4
@@ -31,6 +31,7 @@ static bool byte_pointer_flipflop, memory_to_memory_enabled;
 __force_inline static void i8237_reset() {
     memset(dma_channels, 0x00, sizeof(dma_channel_s) * DMA_CHANNELS);
     memory_to_memory_enabled = false;
+    byte_pointer_flipflop = 0;  // CRITICAL: Master Clear сбрасывает flipflop!
     dma_channels[0].masked = 1;
     dma_channels[1].masked = 1;
     dma_channels[2].masked = 1;
@@ -87,7 +88,7 @@ __force_inline static void i8237_writeport(const uint16_t port_number, const uin
             debug_log("DMA COMMAND: mem2mem=%d, auto_init=%d\n", memory_to_memory_enabled, (data >> 5) & 1);
             break;
         case DMA_REQUEST_REGISTER: //DMA request register
-            debug_log("DMA CH%d DREQ\n", data & 3, (data >> 2) & 1);
+            debug_log("DMA CH%d DREQ=%d\n", data & 3, (data >> 2) & 1);
             dma_channels[data & 3].dreq = (data >> 2) & 1;
             break;
         case DMA_CHANNEL_MASK_REGISTER: {
@@ -120,8 +121,12 @@ __force_inline static void i8237_writeport(const uint16_t port_number, const uin
         case DMA_MASTER_CLEAR: // DMA master clear
             i8237_reset();
             break;
-        case DMA_TEMP_REGISTER: // Mask Reset
-            byte_pointer_flipflop = 0;
+        case DMA_CLEAR_MASK_REGISTER: // Clear Mask Register (unmask all 4 channels)
+            dma_channels[0].masked = 0;
+            dma_channels[1].masked = 0;
+            dma_channels[2].masked = 0;
+            dma_channels[3].masked = 0;
+            debug_log("DMA CLEAR_MASK: All channels unmasked\n");
             break;
         case DMA_CLEAR_FF: //clear byte pointer flipflop
             byte_pointer_flipflop = 0;
@@ -178,11 +183,11 @@ __force_inline static uint8_t i8237_readport(const uint16_t port_number) {
             const uint8_t channel = (port_number >> 1) & 3;
 
             if (port_number & 1) {
-                //count
+                //count - возвращаем CURRENT count (текущее значение), а не reload
                 if (byte_pointer_flipflop) {
-                    register_value = (uint8_t) (dma_channels[channel].count >> 8); //TODO: or give back the reload??
+                    register_value = (uint8_t) (dma_channels[channel].count >> 8);
                 } else {
-                    register_value = (uint8_t) dma_channels[channel].count; //TODO: or give back the reload??
+                    register_value = (uint8_t) dma_channels[channel].count;
                 }
                 debug_log("[%llu] DMA READ COUNT: CH%d port=0x%02X, flipflop=%d, value=0x%02X, full_count=0x%04X\n",
                       get_absolute_time(), channel, port_number, byte_pointer_flipflop, register_value, dma_channels[channel].count);
