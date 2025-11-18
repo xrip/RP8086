@@ -1,7 +1,7 @@
 /* 	Intel 8237 DMA controller */
 #pragma once
 
-#define DEBUG_I8237
+//#define DEBUG_I8237
 #if defined(DEBUG_I8237)
 #define debug_log(...) printf(__VA_ARGS__)
 #else
