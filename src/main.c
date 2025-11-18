@@ -4,6 +4,7 @@
 #include "cpu_bus.h"
 #include "common.h"
 #include "graphics.h"
+#include "hardware/i8237.h"
 #include "hardware/pwm.h"
 
 #ifndef DEBUG
@@ -310,6 +311,34 @@ bool handleScancode(const uint32_t ps2scancode) {
     uint32_t frame_counter = 0;
     uint8_t old_videomode = 0;
     while (true) {
+        for (int ch = 0; ch < DMA_CHANNELS; ch++) {
+            if (dma_channels[ch].dreq && !dma_channels[ch].masked) {
+                // Устройство запросило DMA - начать передачу
+                // Но это требует буферизации данных от устройства!
+                dma_channel_s *channel = &dma_channels[ch];
+
+                /*if (unlikely(channel->masked)) {
+                    return;
+                }*/
+
+                // Вычисляем физический адрес назначения
+                const uint32_t dest_addr = channel->page + channel->address;
+                const size_t size = (uint32_t)channel->count + 1;
+                // КРИТИЧНО: выполняем передачу СИНХРОННО (без race condition)
+                memcpy(&RAM[dest_addr], channel->data_source, size);
+
+                // Обновляем счётчики
+                update_count(channel, size);
+
+                // Генерируем IRQ если назначен (после завершения передачи!)
+                if (channel->finished && channel->irq) {
+                    i8259_interrupt(channel->irq);
+                }
+                channel->dreq = 0;
+                // printf("DMA CH%i transfer compete from %x to %x size %x, irq %d\n", ch, channel->data_source, dest_addr, size, channel->irq);
+            }
+        }
+
         // Отрисовка MDA фреймбуфера
         if (absolute_time_diff_us(next_frame, get_absolute_time()) >= 0) {
 #ifndef DEBUG
@@ -366,7 +395,7 @@ bool handleScancode(const uint32_t ps2scancode) {
                 cga.updated = false;
             }
 #if DEBUG
-            if (video_enabled) {
+            if (video_enabled && videomode <= TEXTMODE_80x25_COLOR) {
                 printf("\033[H"); // cursor home
                 printf("\033[2J"); // clear screen
                 printf("\033[3J"); // clear scrollback
