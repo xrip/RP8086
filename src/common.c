@@ -24,7 +24,12 @@ i8253_s i8253 __attribute__((aligned(4))) = {
     }
 };
 i8272_s i8272 __attribute__((aligned(4)));
-dma_channel_s dma_channels[DMA_CHANNELS];
+dma_channel_s dma_channels[DMA_CHANNELS] = {
+    { .masked =  1},
+    { .masked =  1},
+    { .masked =  1},
+    { .masked =  1},
+};
 
 uart_16550_s uart __attribute__((aligned(4))) = {
     .data_ready = false,

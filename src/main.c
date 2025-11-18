@@ -311,31 +311,27 @@ bool handleScancode(const uint32_t ps2scancode) {
     uint32_t frame_counter = 0;
     uint8_t old_videomode = 0;
     while (true) {
-        for (int ch = 0; ch < DMA_CHANNELS; ch++) {
-            if (dma_channels[ch].dreq && !dma_channels[ch].masked) {
-                // Устройство запросило DMA - начать передачу
-                // Но это требует буферизации данных от устройства!
-                dma_channel_s *channel = &dma_channels[ch];
-
-                /*if (unlikely(channel->masked)) {
-                    return;
-                }*/
-
+        for (dma_channel_s *channel = dma_channels; channel < dma_channels + DMA_CHANNELS; channel++) {
+            if (channel->dreq && !channel->masked) {
                 // Вычисляем физический адрес назначения
                 const uint32_t dest_addr = channel->page + channel->address;
                 const size_t size = (uint32_t)channel->count + 1;
-                // КРИТИЧНО: выполняем передачу СИНХРОННО (без race condition)
+
                 memcpy(&RAM[dest_addr], channel->data_source, size);
 
                 // Обновляем счётчики
                 update_count(channel, size);
 
                 // Генерируем IRQ если назначен (после завершения передачи!)
-                if (channel->finished && channel->irq) {
-                    i8259_interrupt(channel->irq);
+                if (channel->finished ) {
+                    channel->dreq = 0;
+
+                    if (channel->irq)
+                        i8259_interrupt(channel->irq);
+                    // printf("DMA CH%i transfer compete from %x to %x size %x, irq %d\n", dma_channels-channel, channel->data_source, dest_addr, size, channel->irq);
                 }
-                channel->dreq = 0;
-                // printf("DMA CH%i transfer compete from %x to %x size %x, irq %d\n", ch, channel->data_source, dest_addr, size, channel->irq);
+
+
             }
         }
 

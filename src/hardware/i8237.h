@@ -1,7 +1,7 @@
 /* 	Intel 8237 DMA controller */
 #pragma once
 
-//#define DEBUG_I8237
+#define DEBUG_I8237
 #if defined(DEBUG_I8237)
 #define debug_log(...) printf(__VA_ARGS__)
 #else
@@ -53,7 +53,7 @@ __force_inline static void i8237_writeport(const uint16_t port_number, const uin
                 }
                 dma_channels[channel].reload_count = dma_channels[channel].count;
                     debug_log("[%llu] DMA COUNT: CH%i port=0x%02X, flipflop=%d, data=0x%02X, count=0x%04X\n",
-                           to_us_since_boot(get_absolute_time()), channel, port_number, byte_pointer_flipflop, data, dma_channels[channel].count);
+                          get_absolute_time(), channel, port_number, byte_pointer_flipflop, data, dma_channels[channel].count);
             } else {
                 // Программируем ТОЛЬКО reload_address (base register)
                 if (byte_pointer_flipflop) {
@@ -65,12 +65,12 @@ __force_inline static void i8237_writeport(const uint16_t port_number, const uin
                     dma_channels[channel].address = dma_channels[channel].reload_address;
 
                         debug_log("[%llu] DMA ADDR HIGH: CH%d port=0x%02X, data=0x%02X, reload_address=0x%04X\n",
-                               to_us_since_boot(get_absolute_time()), channel, port_number, data, dma_channels[channel].reload_address);
+                              get_absolute_time(), channel, port_number, data, dma_channels[channel].reload_address);
                 } else {
                     // LOW byte (первый вызов): СОХРАНЯЕМ HIGH byte, записываем LOW
                     dma_channels[channel].reload_address = (dma_channels[channel].reload_address & 0xFF00) | (uint16_t) data;
                         debug_log("[%llu] DMA ADDR LOW: CH%i port=0x%02X, data=0x%02X, reload_address=0x%04X\n",
-                               to_us_since_boot(get_absolute_time()), channel, port_number, data, dma_channels[channel].reload_address);
+                              get_absolute_time(), channel, port_number, data, dma_channels[channel].reload_address);
                 }
             }
 
@@ -99,10 +99,8 @@ __force_inline static void i8237_writeport(const uint16_t port_number, const uin
             if (dma_channels[channel].masked && !mask) {
                 dma_channels[channel].address = dma_channels[channel].reload_address;
                 dma_channels[channel].count = dma_channels[channel].reload_count;
-                if (channel == 2) {
-                    debug_log("[%llu] DMA UNMASK: CH2 address=0x%04X, count=0x%04X (reload→current)\n",
-                           to_us_since_boot(get_absolute_time()), dma_channels[channel].address, dma_channels[channel].count);
-                }
+                    debug_log("[%llu] DMA UNMASK: CH%d address=0x%04X, count=0x%04X (reload→current)\n",
+                          get_absolute_time(), channel, dma_channels[channel].address, dma_channels[channel].count);
             }
 
             dma_channels[channel].masked = mask;
@@ -169,7 +167,7 @@ __force_inline static void i8237_writepage(const uint16_t port_number, const uin
     }
     dma_channels[channel].page = (uint32_t) data << 16;
         debug_log("[%llu] CH%d DMA PAGE WRITE: port=0x%02X, channel=%d, page=0x%02X, final_addr=0x%05X\n",
-               to_us_since_boot(get_absolute_time()), channel, port_number, channel, data, dma_channels[channel].page | dma_channels[channel].reload_address);
+              get_absolute_time(), channel, port_number, channel, data, dma_channels[channel].page | dma_channels[channel].reload_address);
 }
 
 __force_inline static uint8_t i8237_readport(const uint16_t port_number) {
@@ -187,7 +185,7 @@ __force_inline static uint8_t i8237_readport(const uint16_t port_number) {
                     register_value = (uint8_t) dma_channels[channel].count; //TODO: or give back the reload??
                 }
                 debug_log("[%llu] DMA READ COUNT: CH%d port=0x%02X, flipflop=%d, value=0x%02X, full_count=0x%04X\n",
-                       to_us_since_boot(get_absolute_time()), channel, port_number, byte_pointer_flipflop, register_value, dma_channels[channel].count);
+                      get_absolute_time(), channel, port_number, byte_pointer_flipflop, register_value, dma_channels[channel].count);
             } else {
                 //address
                 if (byte_pointer_flipflop) {
@@ -196,7 +194,7 @@ __force_inline static uint8_t i8237_readport(const uint16_t port_number) {
                     register_value = (uint8_t) dma_channels[channel].address;
                 }
                 debug_log("[%llu] DMA READ ADDRESS: CH%d port=0x%02X, flipflop=%d, value=0x%02X, full_addr=0x%04X\n",
-                       to_us_since_boot(get_absolute_time()), channel, port_number, byte_pointer_flipflop, register_value, dma_channels[channel].address);
+                      get_absolute_time(), channel, port_number, byte_pointer_flipflop, register_value, dma_channels[channel].address);
             }
             byte_pointer_flipflop ^= 1;
             break;
@@ -216,7 +214,7 @@ __force_inline static uint8_t i8237_readport(const uint16_t port_number) {
                 }
 
                 debug_log("[%llu] CH%i DMA STATUS READ: 0x%02X (DREQ=0x%01X, TC=0x%01X)\n",
-       to_us_since_boot(get_absolute_time()), channel, register_value, register_value & 0x0F, (register_value >> 4) & 0x0F);
+      get_absolute_time(), channel, register_value, register_value & 0x0F, (register_value >> 4) & 0x0F);
             }
 
         }
@@ -264,11 +262,11 @@ __force_inline void update_count(dma_channel_s *channel, const uint16_t count) {
             channel->count = channel->reload_count;
             channel->address = channel->reload_address;
                 debug_log("[%llu] DMA AUTO-INIT: CH2 address=0x%04X, count=0x%04X (reload→current), TC flag set\n",
-                       to_us_since_boot(get_absolute_time()), channel->address, channel->count);
+                      get_absolute_time(), channel->address, channel->count);
         } else {
             // Terminal count без auto-init: маскируем канал
             channel->masked = 1;
-                debug_log("[%llu] DMA TERMINAL COUNT: CH2 masked, TC flag set\n", to_us_since_boot(get_absolute_time()));
+                debug_log("[%llu] DMA TERMINAL COUNT: CH2 masked, TC flag set\n",get_absolute_time());
         }
     }
 }
