@@ -39,11 +39,13 @@ target_link_libraries(${PROJECT_NAME} PRIVATE vga-nextgen)
 message(STATUS "VGA display enabled")
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE
+
         VGA
         VGA_BASE_PIN=30
         PICO_FLASH_SIZE_BYTES=16777216
         PICO_PRINTF_ALWAYS_INCLUDED=0
         PICO_PANIC_FUNCTION=0
+
 )
 
 

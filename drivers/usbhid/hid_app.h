@@ -3,19 +3,21 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define DPAD_LEFT   0x001000
-#define DPAD_RIGHT  0x004000
-#define DPAD_DOWN   0x000400
-#define DPAD_UP     0x000100
-#define DPAD_START  0x000040
-#define DPAD_SELECT 0x000010
-#define DPAD_B      0x000004   //Y on SNES
-#define DPAD_A      0x000001   //B on SNES
-extern int nespad_state;
+// ========================================
+// USB HID Driver API
+// Поддержка клавиатуры и мыши через USB
+// ========================================
 
+// === Клавиатура ===
 void keyboard_init(void);
-void mouse_init(void);
-static inline void nespad_read() {}
-int16_t keyboard_send(uint8_t data);
 void keyboard_tick(void);
+
+// External handler for scancodes (implemented in main application)
 bool handleScancode(uint32_t ps2scancode);
+
+// === Мышь (Microsoft Serial Mouse protocol) ===
+void mouse_init(void);
+
+// TODO: Добавить функцию для получения состояния мыши
+// mouse_state_t* mouse_get_state(void);
+// void mouse_send_to_uart(void); // Отправка данных через COM1

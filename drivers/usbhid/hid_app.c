@@ -1,28 +1,34 @@
+// ========================================
+// USB HID Application Layer
+// Поддержка клавиатуры и мыши через TinyUSB
+//
+// Архитектура:
+//   - Keyboard: USB HID → XT Scancode → handleScancode() в main app
+//   - Mouse: USB HID → Microsoft Serial Mouse protocol → COM1 (TODO)
+// ========================================
+
 #include "hid_app.h"
 #include "tusb.h"
 #include "class/hid/hid.h"
 #include "pico/util/queue.h"
 
-#define GAMEPAD_MAX_DEVICES 2
-
-int nespad_state;
-
-typedef struct {
-    uint16_t id;
-    uint32_t type;
-    uint8_t index;
-    uint8_t hat_state;
-    uint32_t button_state;
-} gamepad_t;
-
-uint8_t const keycode_to_ascii_table[128][2] = {HID_KEYCODE_TO_ASCII};
-
+// ========================================
+// === Клавиатура (USB HID → XT Scancode) ===
+// ========================================
 static hid_keyboard_report_t prev_report = {0, 0, {0}};
 
-static gamepad_t gamepads[GAMEPAD_MAX_DEVICES];
-static int8_t gamepads_count = 0;
+// ========================================
+// === Мышь (Microsoft Serial Mouse) ===
+// ========================================
 
-static void gamepad_state_update(uint8_t index, uint8_t hat_state, uint32_t button_state);
+// Структура состояния мыши для Microsoft Serial Mouse protocol
+typedef struct {
+    int8_t x;           // Смещение по X (-127..+127)
+    int8_t y;           // Смещение по Y (-127..+127)
+    uint8_t buttons;    // Биты кнопок: bit0=Left, bit1=Right, bit2=Middle
+} mouse_state_t;
+
+static mouse_state_t mouse_state = {0};
 
 // The main emulator wants XT ("set 1") scancodes. Who are we to disappoint them?
 // ref1: adafrhit_hid/keycode.py
@@ -143,14 +149,8 @@ void keyboard_init(void) {
 }
 
 void mouse_init() {
+    // TODO: Initialize mouse support (Microsoft Serial Mouse protocol)
 }
-
-int16_t keyboard_send(uint8_t i) {
-    printf("keyboard_send %u unimplemented\n", i);
-    return 0;
-}
-
-static bool ctrl_pressed;
 
 static void kbd_add_sequence(const uint8_t *sequence) {
     if (!sequence)
@@ -160,25 +160,19 @@ static void kbd_add_sequence(const uint8_t *sequence) {
     }
 }
 
+// Конвертирует USB HID keycode в XT scancode и добавляет в очередь
+// is_release: 0 = make code (нажатие), 1 = break code (отпускание)
 static void kbd_raw_key(int usb_code, int is_release) {
     const uint8_t *sequence = (const uint8_t*)conversion[usb_code].d[is_release];
     kbd_add_sequence(sequence);
 }
 
-static void kbd_raw_key_down(int usb_code) {    
-    if (usb_code == 126 && ctrl_pressed) {
-        kbd_add_sequence("\xe0\x46");
-    } else {
-        kbd_raw_key(usb_code, 0);
-    }
+static void kbd_raw_key_down(int usb_code) {
+    kbd_raw_key(usb_code, 0);
 }
 
-static void kbd_raw_key_up(int usb_code) {    
-    if (usb_code == 126 && ctrl_pressed) {
-        kbd_add_sequence("\xe0\xc6"); // This is a guess
-    } else {
-        kbd_raw_key(usb_code, 1);
-    }
+static void kbd_raw_key_up(int usb_code) {
+    kbd_raw_key(usb_code, 1);
 }
 
 static inline bool find_key_in_report(hid_keyboard_report_t const* report, uint8_t keycode) {
@@ -219,621 +213,32 @@ static void find_released_keys(hid_keyboard_report_t const* report) {
     process_kbd_report(&prev_report, report, &kbd_raw_key_up);
 }
 
-static gamepad_t* find_gamepad(uint16_t id) {
-    for (int i = 0; i < gamepads_count; i++) {
-        if (gamepads[i].id == id) {
-            return &gamepads[i];
-        }
-    }
-    return NULL;
-}
+// ========================================
+// === Mouse (Microsoft Serial Mouse) ===
+// ========================================
 
-// Support for Xbox One controller (04284001)
-static uint8_t get_hat_state_04284001(uint8_t const* report) {
-    uint8_t hat_state = 0;
-    uint8_t dpad = report[2] & 0x0F;
-    
-    switch (dpad) {
-        case 0x1:
-            hat_state = GAMEPAD_HAT_UP;
-            break;
-        case 0x3:
-            hat_state = GAMEPAD_HAT_UP_RIGHT;
-            break;
-        case 0x2:
-            hat_state = GAMEPAD_HAT_RIGHT;
-            break;
-        case 0x6:
-            hat_state = GAMEPAD_HAT_DOWN_RIGHT;
-            break;
-        case 0x4:
-            hat_state = GAMEPAD_HAT_DOWN;
-            break;
-        case 0xC:
-            hat_state = GAMEPAD_HAT_DOWN_LEFT;
-            break;
-        case 0x8:
-            hat_state = GAMEPAD_HAT_LEFT;
-            break;
-        case 0x9:
-            hat_state = GAMEPAD_HAT_UP_LEFT;
-            break;
-        case 0x0:
-            hat_state = GAMEPAD_HAT_CENTERED;
-            break;
-        default:
-            hat_state = GAMEPAD_HAT_CENTERED;
-            break;
-    }
-    
-    return hat_state;
-}
+// Обработка HID mouse report и конвертация в Microsoft Serial Mouse protocol
+// Формат протокола (3 байта):
+//   Byte 0: [0 1 L R Y7 Y6 X7 X6] - sync byte (биты 7,6=0,1; L,R - кнопки; X7-X6,Y7-Y6 - старшие биты координат)
+//   Byte 1: [0 0 X5 X4 X3 X2 X1 X0] - младшие 6 бит X смещения
+//   Byte 2: [0 0 Y5 Y4 Y3 Y2 Y1 Y0] - младшие 6 бит Y смещения
+static void process_mouse_report(uint8_t const* report, uint16_t len) {
+    // TODO: Парсинг HID mouse report (стандартный формат: buttons, x, y)
+    // TODO: Отправка данных через COM1 (Microsoft Serial Mouse protocol)
+    // TODO: Интеграция с UART emulation (hardware/uart.h)
 
-static uint32_t get_button_state_04284001(uint8_t const* report) {
-    uint32_t button_state = 0;
-    
-    if (report[3] & 0x10) {
-        button_state |= GAMEPAD_BUTTON_A;
-    }
-    if (report[3] & 0x20) {
-        button_state |= GAMEPAD_BUTTON_B;
-    }
-    if (report[3] & 0x40) {
-        button_state |= GAMEPAD_BUTTON_X;
-    }
-    if (report[3] & 0x80) {
-        button_state |= GAMEPAD_BUTTON_Y;
-    }
-    if (report[3] & 0x01) {
-        button_state |= GAMEPAD_BUTTON_TL;
-    }
-    if (report[3] & 0x02) {
-        button_state |= GAMEPAD_BUTTON_TR;
-    }
-    
-    return button_state;
-}
+    if (len < 3) return; // Минимальный размер HID mouse report
 
-// Support for PS3 controller (05832060)
-static uint8_t get_hat_state_05832060(uint8_t const* report) {
-    uint8_t hat_state = 0;
-    uint8_t dpad = report[2] & 0x0F;
-    
-    switch (dpad) {
-        case 0x0:
-            hat_state = GAMEPAD_HAT_UP;
-            break;
-        case 0x1:
-            hat_state = GAMEPAD_HAT_UP_RIGHT;
-            break;
-        case 0x2:
-            hat_state = GAMEPAD_HAT_RIGHT;
-            break;
-        case 0x3:
-            hat_state = GAMEPAD_HAT_DOWN_RIGHT;
-            break;
-        case 0x4:
-            hat_state = GAMEPAD_HAT_DOWN;
-            break;
-        case 0x5:
-            hat_state = GAMEPAD_HAT_DOWN_LEFT;
-            break;
-        case 0x6:
-            hat_state = GAMEPAD_HAT_LEFT;
-            break;
-        case 0x7:
-            hat_state = GAMEPAD_HAT_UP_LEFT;
-            break;
-        case 0x8:
-            hat_state = GAMEPAD_HAT_CENTERED;
-            break;
-        default:
-            hat_state = GAMEPAD_HAT_CENTERED;
-            break;
-    }
-    
-    return hat_state;
-}
+    // Стандартный HID mouse report format:
+    // Byte 0: buttons (bit0=L, bit1=R, bit2=Middle)
+    // Byte 1: X movement (signed 8-bit)
+    // Byte 2: Y movement (signed 8-bit)
 
-static uint32_t get_button_state_05832060(uint8_t const* report) {
-    uint32_t button_state = 0;
-    
-    if (report[3] & 0x40) {
-        button_state |= GAMEPAD_BUTTON_A;
-    }
-    if (report[3] & 0x20) {
-        button_state |= GAMEPAD_BUTTON_B;
-    }
-    if (report[3] & 0x10) {
-        button_state |= GAMEPAD_BUTTON_X;
-    }
-    if (report[3] & 0x80) {
-        button_state |= GAMEPAD_BUTTON_Y;
-    }
-    if (report[3] & 0x08) {
-        button_state |= GAMEPAD_BUTTON_TL;
-    }
-    if (report[3] & 0x04) {
-        button_state |= GAMEPAD_BUTTON_TR;
-    }
-    
-    return button_state;
-}
+    mouse_state.buttons = report[0] & 0x07;
+    mouse_state.x = (int8_t)report[1];
+    mouse_state.y = (int8_t)report[2];
 
-// Support for PS4 controller (054C0CDA)
-static uint8_t get_hat_state_054C0CDA(uint8_t const* report) {
-    uint8_t hat_state = 0;
-    uint8_t dpad = report[5] & 0x0F;
-    
-    switch (dpad) {
-        case 0x0:
-            hat_state = GAMEPAD_HAT_UP;
-            break;
-        case 0x1:
-            hat_state = GAMEPAD_HAT_UP_RIGHT;
-            break;
-        case 0x2:
-            hat_state = GAMEPAD_HAT_RIGHT;
-            break;
-        case 0x3:
-            hat_state = GAMEPAD_HAT_DOWN_RIGHT;
-            break;
-        case 0x4:
-            hat_state = GAMEPAD_HAT_DOWN;
-            break;
-        case 0x5:
-            hat_state = GAMEPAD_HAT_DOWN_LEFT;
-            break;
-        case 0x6:
-            hat_state = GAMEPAD_HAT_LEFT;
-            break;
-        case 0x7:
-            hat_state = GAMEPAD_HAT_UP_LEFT;
-            break;
-        default:
-            hat_state = GAMEPAD_HAT_CENTERED;
-            break;
-    }
-    
-    return hat_state;
-}
-
-static uint32_t get_button_state_054C0CDA(uint8_t const* report) {
-    uint32_t button_state = 0;
-    
-    if (report[5] & 0x10) {
-        button_state |= GAMEPAD_BUTTON_A;
-    }
-    if (report[5] & 0x20) {
-        button_state |= GAMEPAD_BUTTON_B;
-    }
-    if (report[5] & 0x40) {
-        button_state |= GAMEPAD_BUTTON_X;
-    }
-    if (report[5] & 0x80) {
-        button_state |= GAMEPAD_BUTTON_Y;
-    }
-    if (report[6] & 0x01) {
-        button_state |= GAMEPAD_BUTTON_TL;
-    }
-    if (report[6] & 0x02) {
-        button_state |= GAMEPAD_BUTTON_TR;
-    }
-    
-    return button_state;
-}
-
-static uint8_t get_hat_state_0079181C(uint8_t const* report) {
-    uint8_t hat_state = 0;
-    uint8_t dpad = report[2] & 0xF;
-
-    switch (dpad) {
-        case 0x0:
-            hat_state = GAMEPAD_HAT_UP;
-            break;
-        case 0x1:
-            hat_state = GAMEPAD_HAT_UP_RIGHT;
-            break;
-        case 0x2:
-            hat_state = GAMEPAD_HAT_RIGHT;
-            break;
-        case 0x3:
-            hat_state = GAMEPAD_HAT_DOWN_RIGHT;
-            break;
-        case 0x4:
-            hat_state = GAMEPAD_HAT_DOWN;
-            break;
-        case 0x5:
-            hat_state = GAMEPAD_HAT_DOWN_LEFT;
-            break;
-        case 0x6:
-            hat_state = GAMEPAD_HAT_LEFT;
-            break;
-        case 0x7:
-            hat_state = GAMEPAD_HAT_UP_LEFT;
-            break;
-        default:
-            hat_state = GAMEPAD_HAT_CENTERED;
-            break;
-    }
-
-    return hat_state;
-}
-
-static uint32_t get_button_state_0079181C(uint8_t const* report) {
-    uint32_t button_state = 0;
-
-    if (report[0] & 0x01) {
-        button_state |= GAMEPAD_BUTTON_A;
-    }
-    if (report[0] & 0x02) {
-        button_state |= GAMEPAD_BUTTON_B;
-    }
-    if (report[0] & 0x08) {
-        button_state |= GAMEPAD_BUTTON_X;
-    }
-    if (report[0] & 0x10) {
-        button_state |= GAMEPAD_BUTTON_Y;
-    }
-    if (report[0] & 0x40) {
-        button_state |= GAMEPAD_BUTTON_TL;
-    }
-    if (report[0] & 0x80) {
-        button_state |= GAMEPAD_BUTTON_TR;
-    }
-
-    return button_state;
-}
-
-// Support for 8BitDo SN30 Pro controller (007918D2)
-static uint8_t get_hat_state_007918D2(uint8_t const* report) {
-    uint8_t hat_state = 0;
-    uint8_t dpad = report[2] & 0x0F;
-    
-    switch (dpad) {
-        case 0x0:
-            hat_state = GAMEPAD_HAT_UP;
-            break;
-        case 0x1:
-            hat_state = GAMEPAD_HAT_UP_RIGHT;
-            break;
-        case 0x2:
-            hat_state = GAMEPAD_HAT_RIGHT;
-            break;
-        case 0x3:
-            hat_state = GAMEPAD_HAT_DOWN_RIGHT;
-            break;
-        case 0x4:
-            hat_state = GAMEPAD_HAT_DOWN;
-            break;
-        case 0x5:
-            hat_state = GAMEPAD_HAT_DOWN_LEFT;
-            break;
-        case 0x6:
-            hat_state = GAMEPAD_HAT_LEFT;
-            break;
-        case 0x7:
-            hat_state = GAMEPAD_HAT_UP_LEFT;
-            break;
-        case 0x8:
-            hat_state = GAMEPAD_HAT_CENTERED;
-            break;
-        default:
-            hat_state = GAMEPAD_HAT_CENTERED;
-            break;
-    }
-    
-    return hat_state;
-}
-
-static uint32_t get_button_state_007918D2(uint8_t const* report) {
-    uint32_t button_state = 0;
-    
-    if (report[0] & 0x01) {
-        button_state |= GAMEPAD_BUTTON_A;
-    }
-    if (report[0] & 0x02) {
-        button_state |= GAMEPAD_BUTTON_B;
-    }
-    if (report[0] & 0x08) {
-        button_state |= GAMEPAD_BUTTON_X;
-    }
-    if (report[0] & 0x10) {
-        button_state |= GAMEPAD_BUTTON_Y;
-    }
-    if (report[0] & 0x40) {
-        button_state |= GAMEPAD_BUTTON_TL;
-    }
-    if (report[0] & 0x80) {
-        button_state |= GAMEPAD_BUTTON_TR;
-    }
-    
-    return button_state;
-}
-
-// Support for Switch Pro controller (07382217)
-static uint8_t get_hat_state_07382217(uint8_t const* report) {
-    uint8_t hat_state = 0;
-    uint8_t dpad = (report[5] >> 4) & 0x0F;
-    
-    switch (dpad) {
-        case 0x0:
-            hat_state = GAMEPAD_HAT_UP;
-            break;
-        case 0x1:
-            hat_state = GAMEPAD_HAT_UP_RIGHT;
-            break;
-        case 0x2:
-            hat_state = GAMEPAD_HAT_RIGHT;
-            break;
-        case 0x3:
-            hat_state = GAMEPAD_HAT_DOWN_RIGHT;
-            break;
-        case 0x4:
-            hat_state = GAMEPAD_HAT_DOWN;
-            break;
-        case 0x5:
-            hat_state = GAMEPAD_HAT_DOWN_LEFT;
-            break;
-        case 0x6:
-            hat_state = GAMEPAD_HAT_LEFT;
-            break;
-        case 0x7:
-            hat_state = GAMEPAD_HAT_UP_LEFT;
-            break;
-        case 0x8:
-            hat_state = GAMEPAD_HAT_CENTERED;
-            break;
-        default:
-            hat_state = GAMEPAD_HAT_CENTERED;
-            break;
-    }
-    
-    return hat_state;
-}
-
-static uint32_t get_button_state_07382217(uint8_t const* report) {
-    uint32_t button_state = 0;
-    
-    if (report[3] & 0x04) {
-        button_state |= GAMEPAD_BUTTON_A;
-    }
-    if (report[3] & 0x02) {
-        button_state |= GAMEPAD_BUTTON_B;
-    }
-    if (report[3] & 0x08) {
-        button_state |= GAMEPAD_BUTTON_X;
-    }
-    if (report[3] & 0x01) {
-        button_state |= GAMEPAD_BUTTON_Y;
-    }
-    if (report[3] & 0x40) {
-        button_state |= GAMEPAD_BUTTON_TL;
-    }
-    if (report[3] & 0x80) {
-        button_state |= GAMEPAD_BUTTON_TR;
-    }
-    
-    return button_state;
-}
-
-static uint8_t get_hat_state_081FE401(uint8_t const* report) {
-    uint8_t hat_state = 0;
-
-    switch (report[0] << 8 | report[1]) {
-        case 0x7F7F:
-            hat_state = GAMEPAD_HAT_CENTERED;
-            break;
-
-        case 0x7F00:
-            hat_state = GAMEPAD_HAT_UP;
-            break;
-
-        case 0xFF00:
-            hat_state = GAMEPAD_HAT_UP_RIGHT;
-            break;
-
-        case 0xFF7F:
-            hat_state = GAMEPAD_HAT_RIGHT;
-            break;
-
-        case 0xFFFF:
-            hat_state = GAMEPAD_HAT_DOWN_RIGHT;
-            break;
-
-        case 0x7FFF:
-            hat_state = GAMEPAD_HAT_DOWN;
-            break;
-
-        case 0x00FF:
-            hat_state = GAMEPAD_HAT_DOWN_LEFT;
-            break;
-
-        case 0x007F:
-            hat_state = GAMEPAD_HAT_LEFT;
-            break;
-
-        case 0x0000:
-            hat_state = GAMEPAD_HAT_UP_LEFT;
-            break;
-
-        default:
-            break;
-    }
-
-    return hat_state;
-}
-
-static uint32_t get_button_state_081FE401(uint8_t const* report) {
-    uint32_t button_state = 0;
-
-    if (report[5] & 0x20) {
-        button_state |= GAMEPAD_BUTTON_A;
-    }
-    if (report[5] & 0x40) {
-        button_state |= GAMEPAD_BUTTON_B;
-    }
-    if (report[5] & 0x10) {
-        button_state |= GAMEPAD_BUTTON_X;
-    }
-    if (report[5] & 0x80) {
-        button_state |= GAMEPAD_BUTTON_Y;
-    }
-    if (report[6] & 0x01) {
-        button_state |= GAMEPAD_BUTTON_TL;
-    }
-    if (report[6] & 0x02) {
-        button_state |= GAMEPAD_BUTTON_TR;
-    }
-
-    return button_state;
-}
-
-// Support for Generic USB controller (1C59002X)
-static uint8_t get_hat_state_1C59002X(uint8_t const* report) {
-    uint8_t hat_state = 0;
-    uint8_t dpad = report[0] & 0x0F;
-    
-    switch (dpad) {
-        case 0x0:
-            hat_state = GAMEPAD_HAT_UP;
-            break;
-        case 0x1:
-            hat_state = GAMEPAD_HAT_UP_RIGHT;
-            break;
-        case 0x2:
-            hat_state = GAMEPAD_HAT_RIGHT;
-            break;
-        case 0x3:
-            hat_state = GAMEPAD_HAT_DOWN_RIGHT;
-            break;
-        case 0x4:
-            hat_state = GAMEPAD_HAT_DOWN;
-            break;
-        case 0x5:
-            hat_state = GAMEPAD_HAT_DOWN_LEFT;
-            break;
-        case 0x6:
-            hat_state = GAMEPAD_HAT_LEFT;
-            break;
-        case 0x7:
-            hat_state = GAMEPAD_HAT_UP_LEFT;
-            break;
-        case 0x8:
-            hat_state = GAMEPAD_HAT_CENTERED;
-            break;
-        default:
-            hat_state = GAMEPAD_HAT_CENTERED;
-            break;
-    }
-    
-    return hat_state;
-}
-
-static uint32_t get_button_state_1C59002X(uint8_t const* report) {
-    uint32_t button_state = 0;
-    
-    if (report[1] & 0x01) {
-        button_state |= GAMEPAD_BUTTON_A;
-    }
-    if (report[1] & 0x02) {
-        button_state |= GAMEPAD_BUTTON_B;
-    }
-    if (report[1] & 0x04) {
-        button_state |= GAMEPAD_BUTTON_X;
-    }
-    if (report[1] & 0x08) {
-        button_state |= GAMEPAD_BUTTON_Y;
-    }
-    if (report[1] & 0x10) {
-        button_state |= GAMEPAD_BUTTON_TL;
-    }
-    if (report[1] & 0x20) {
-        button_state |= GAMEPAD_BUTTON_TR;
-    }
-    
-    return button_state;
-}
-
-static void process_gamepad_report(uint8_t dev_addr, uint8_t instance, uint8_t const* report, uint16_t len) {
-    uint16_t id = dev_addr << 8 | instance;
-    gamepad_t* gamepad = find_gamepad(id);
-
-    switch (gamepad->type) {
-        case 0x04284001: // Xbox One controller
-            if (len != 11) {
-                return;
-            }
-            gamepad->hat_state = get_hat_state_04284001(report);
-            gamepad->button_state = get_button_state_04284001(report);
-            break;
-            
-        case 0x05832060: // PS3 controller
-            if (len != 8) {
-                return;
-            }
-            gamepad->hat_state = get_hat_state_05832060(report);
-            gamepad->button_state = get_button_state_05832060(report);
-            break;
-            
-        case 0x054C0CDA: // PS4 controller
-            if (len != 10) {
-                return;
-            }
-            gamepad->hat_state = get_hat_state_054C0CDA(report);
-            gamepad->button_state = get_button_state_054C0CDA(report);
-            break;
-            
-        case 0x0079181C:
-            if (len != 9) {
-                return;
-            }
-            gamepad->hat_state = get_hat_state_0079181C(report);
-            gamepad->button_state = get_button_state_0079181C(report);
-            break;
-            
-        case 0x007918D2: // 8BitDo SN30 Pro
-            if (len != 9) {
-                return;
-            }
-            gamepad->hat_state = get_hat_state_007918D2(report);
-            gamepad->button_state = get_button_state_007918D2(report);
-            break;
-            
-        case 0x07382217: // Switch Pro controller
-            if (len != 10) {
-                return;
-            }
-            gamepad->hat_state = get_hat_state_07382217(report);
-            gamepad->button_state = get_button_state_07382217(report);
-            break;
-            
-        case 0x081FE401:
-            if (len != 8) {
-                return;
-            }
-            gamepad->hat_state = get_hat_state_081FE401(report);
-            gamepad->button_state = get_button_state_081FE401(report);
-            break;
-
-        case 0x1C590020: // Generic USB controller
-        case 0x1C590021:
-        case 0x1C590022:
-        case 0x1C590023:
-        case 0x1C590024:
-        case 0x1C590025:
-            if (len != 6) {
-                return;
-            }
-            gamepad->hat_state = get_hat_state_1C59002X(report);
-            gamepad->button_state = get_button_state_1C59002X(report);
-            break;
-
-        default:
-            return;
-    }
-
-    gamepad_state_update(gamepad->index, gamepad->hat_state, gamepad->button_state);
+    // TODO: Конвертация в Microsoft Serial Mouse формат и отправка через COM1
 }
 
 void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const* desc_report, uint16_t desc_len) {
@@ -844,57 +249,34 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const* desc_re
     tuh_vid_pid_get(dev_addr, &vid, &pid);
 
     uint8_t const itf_protocol = tuh_hid_interface_protocol(dev_addr, instance);
-    switch (itf_protocol) {
-        case HID_ITF_PROTOCOL_KEYBOARD:
-            break;
 
-        case HID_ITF_PROTOCOL_NONE:
-            if (gamepads_count < GAMEPAD_MAX_DEVICES) {
-                gamepad_t* gamepad = &gamepads[gamepads_count];
-                gamepad->id = dev_addr << 8 | instance;
-                gamepad->type = vid << 16 | pid;
-                gamepad->index = gamepads_count;
-                gamepad->hat_state = 0;
-                gamepad->button_state = 0;
-                gamepads_count++;
+    // Логирование подключенного устройства (можно убрать в production)
+    // if (itf_protocol == HID_ITF_PROTOCOL_KEYBOARD) {
+    //     printf("HID Keyboard connected (VID:PID %04X:%04X)\n", vid, pid);
+    // } else if (itf_protocol == HID_ITF_PROTOCOL_MOUSE) {
+    //     printf("HID Mouse connected (VID:PID %04X:%04X)\n", vid, pid);
+    // }
 
-                // printf("Gamepad connected: VID: %04X PID: %04X\n", vid, pid);
-            }
-            break;
-
-        default:
-            break;
-    }
+    (void)vid;
+    (void)pid;
 
     tuh_hid_receive_report(dev_addr, instance);
 }
 
 void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t const* report, uint16_t len) {
     (void)instance;
-    (void)len;
+    (void)dev_addr;
 
     uint8_t const itf_protocol = tuh_hid_interface_protocol(dev_addr, instance);
 
-    switch (itf_protocol) {
-        case HID_ITF_PROTOCOL_KEYBOARD:
-            const hid_keyboard_report_t *kbd_report = (const hid_keyboard_report_t*)report;
-            /*
-            printf("keyboard report: modifier=%02x keycode=[%3d %3d %3d %3d %3d %3d]\n",
-                kbd_report->modifier, kbd_report->keycode[0],
-                kbd_report->keycode[1], kbd_report->keycode[2], kbd_report->keycode[3], kbd_report->keycode[4], kbd_report->keycode[5]);
-                */
-            ctrl_pressed = kbd_report->modifier & 0x11;
-            find_pressed_keys(kbd_report);
-            find_released_keys(kbd_report);
-            memcpy(&prev_report, report, sizeof(hid_keyboard_report_t));
-            break;
+    if (itf_protocol == HID_ITF_PROTOCOL_KEYBOARD) {
+        const hid_keyboard_report_t *kbd_report = (const hid_keyboard_report_t*)report;
 
-        case HID_ITF_PROTOCOL_NONE:
-            process_gamepad_report(dev_addr, instance, report, len);
-            break;
-
-        default:
-            break;
+        find_pressed_keys(kbd_report);
+        find_released_keys(kbd_report);
+        memcpy(&prev_report, report, sizeof(hid_keyboard_report_t));
+    } else if (itf_protocol == HID_ITF_PROTOCOL_MOUSE) {
+        process_mouse_report(report, len);
     }
 
     tuh_hid_receive_report(dev_addr, instance);
@@ -903,30 +285,6 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
 void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t instance) {
     (void)dev_addr;
     (void)instance;
-}
-
-int nespad_state;
-
-static const int hat_translate[] = {
-    0,
-    DPAD_UP, DPAD_UP | DPAD_RIGHT,
-    DPAD_RIGHT, DPAD_RIGHT | DPAD_DOWN,
-    DPAD_DOWN, DPAD_DOWN | DPAD_DOWN | DPAD_LEFT,
-    DPAD_LEFT, DPAD_LEFT | DPAD_UP,
-};
-
-void gamepad_state_update(uint8_t index, uint8_t hat_state, uint32_t button_state) {
-    nespad_state = 0;
-    if (hat_state < count_of(hat_translate)) {
-        nespad_state = hat_translate[hat_state];
-    }
-
-    if (button_state & 0x55) {
-        nespad_state |= DPAD_A;
-    }
-    if (button_state & 0xaa) {
-        nespad_state |= DPAD_B;
-    }
 }
 
 
