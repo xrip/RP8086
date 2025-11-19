@@ -37,6 +37,8 @@ uart_16550_s uart __attribute__((aligned(4))) = {
     .lcr = 0x03,  // 8 data bits, 1 stop bit, no parity (стандарт)
     .mcr = 0x00,
     .msr = 0xB0,  // CTS, DSR, DCD активны
+    .rx_head = 0,  // FIFO: индекс записи
+    .rx_tail = 0,  // FIFO: индекс чтения
 };
 
 mc6845_s mc6845 __attribute__((aligned(4)));

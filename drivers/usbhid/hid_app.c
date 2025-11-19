@@ -23,6 +23,15 @@ static hid_keyboard_report_t prev_report = {0, 0, {0}};
 // ========================================
 // Обрабатываем HID mouse reports и конвертируем их напрямую в
 // Microsoft Serial Mouse protocol (3 байта через COM1 UART)
+//
+// Автоопределение мыши:
+// 1. tuh_hid_mount_cb() устанавливает флаг usb_mouse_connected = true
+// 2. DOS драйвер устанавливает DTR/RTS на COM1
+// 3. uart_write() в uart16550.h проверяет is_usb_mouse_connected()
+// 4. Если мышь подключена → отправляет идентификатор "M"
+// 5. DOS драйвер распознает Microsoft Serial Mouse
+
+static bool usb_mouse_connected = false;
 
 // The main emulator wants XT ("set 1") scancodes. Who are we to disappoint them?
 // ref1: adafrhit_hid/keycode.py
@@ -143,9 +152,15 @@ void keyboard_init(void) {
 }
 
 void mouse_init() {
-    // Инициализация завершена в keyboard_init()
-    // Microsoft Serial Mouse не требует дополнительной инициализации
-    // Данные будут отправляться через UART FIFO при получении HID reports
+    // Microsoft Serial Mouse автоинициализация:
+    // 1. При установке DTR/RTS драйвером → UART отправит идентификатор "M" (uart16550.h)
+    // 2. HID mouse reports → автоматически конвертируются в Serial Mouse packets через COM1
+    // 3. DOS драйвер (CTMOUSE, MOUSE.COM) читает данные из COM1 (порт 0x3F8)
+    usb_mouse_connected = false;
+}
+
+bool is_usb_mouse_connected(void) {
+    return usb_mouse_connected;
 }
 
 static void kbd_add_sequence(const uint8_t *sequence) {
@@ -283,12 +298,11 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const* desc_re
 
     uint8_t const itf_protocol = tuh_hid_interface_protocol(dev_addr, instance);
 
-    // Логирование подключенного устройства (можно убрать в production)
-    // if (itf_protocol == HID_ITF_PROTOCOL_KEYBOARD) {
-    //     printf("HID Keyboard connected (VID:PID %04X:%04X)\n", vid, pid);
-    // } else if (itf_protocol == HID_ITF_PROTOCOL_MOUSE) {
-    //     printf("HID Mouse connected (VID:PID %04X:%04X)\n", vid, pid);
-    // }
+    // Отслеживаем подключение USB мыши
+    if (itf_protocol == HID_ITF_PROTOCOL_MOUSE) {
+        usb_mouse_connected = true;
+        // printf("HID Mouse connected (VID:PID %04X:%04X)\n", vid, pid);
+    }
 
     (void)vid;
     (void)pid;
@@ -316,8 +330,12 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
 }
 
 void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t instance) {
-    (void)dev_addr;
-    (void)instance;
+    // Проверяем, была ли отключена мышь
+    uint8_t const itf_protocol = tuh_hid_interface_protocol(dev_addr, instance);
+    if (itf_protocol == HID_ITF_PROTOCOL_MOUSE) {
+        usb_mouse_connected = false;
+        // printf("HID Mouse disconnected\n");
+    }
 }
 
 

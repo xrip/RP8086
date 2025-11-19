@@ -1,8 +1,10 @@
 #pragma once
 #include "../common.h"
+#include "../../drivers/usbhid/hid_app.h"  // Для is_usb_mouse_connected()
+#include "i8259.h"  // Для генерации IRQ4 (COM1)
 
 // ============================================================================
-// Intel 16550 UART (COM1) - Minimal Emulation for DOS CTTY
+// Intel 16550 UART (COM1) - Minimal Emulation for DOS CTTY + Serial Mouse
 // ============================================================================
 // Порты: 0x3F8-0x3FF (COM1)
 //
@@ -17,6 +19,11 @@
 // 0x3FD: LSR - Line Status Register
 // 0x3FE: MSR - Modem Status Register
 // 0x3FF: SPR - Scratch Register (not implemented)
+//
+// Поддержка прерываний:
+// - IRQ4 (COM1) генерируется через i8259_interrupt(4) при получении данных
+// - IER bit 0 (0x01) разрешает RDA (Received Data Available) interrupt
+// - IIR возвращает 0x04 (RX_DATA) при наличии данных в FIFO
 // ============================================================================
 
 extern uart_16550_s uart;
@@ -40,6 +47,31 @@ extern uart_16550_s uart;
 #define IIR_THR_EMPTY       0x02  // Priority 3
 #define IIR_RX_DATA         0x04  // Priority 2
 #define IIR_LINE_STATUS     0x06  // Priority 1 (highest)
+
+// ============================================================================
+// uart_write_byte - Запись байта в UART RBR (для эмуляции входящих данных)
+// Используется для Microsoft Serial Mouse protocol
+// ============================================================================
+__force_inline static void uart_write_byte(const uint8_t data) {
+    // Вычисляем следующую позицию head
+    const uint8_t next_head = (uart.rx_head + 1) & 0x0F;
+
+    // Проверяем, не переполнен ли FIFO
+    if (next_head != uart.rx_tail) {
+        // Есть место - записываем байт
+        uart.rx_fifo[uart.rx_head] = data;
+        uart.rx_head = next_head;
+        uart.data_ready = true; // Устанавливаем флаг "данные доступны"
+
+        // Генерируем IRQ4 (COM1) если прерывания разрешены
+        // IER bit 0 (0x01) = RDA (Received Data Available interrupt enable)
+        if (uart.ier & 0x01) {
+            i8259_interrupt(4);  // COM1 = IRQ4
+        }
+    }
+    // Если FIFO переполнен - молча игнорируем (эмуляция overrun)
+}
+
 
 // ============================================================================
 // uart_read - Чтение регистров UART (порты 0x3F8-0x3FF)
@@ -79,8 +111,12 @@ __force_inline static uint8_t uart_read(const uint32_t port) {
 
         case 0x3FA: {
             // IIR - Interrupt Identification Register
-            // Для polling режима всегда возвращаем "no interrupt pending"
-            return IIR_NO_INTERRUPT;
+            // Проверяем наличие данных в FIFO и состояние IER
+            if (uart.data_ready && (uart.ier & 0x01)) {
+                // Есть данные и прерывания разрешены
+                return IIR_RX_DATA;  // 0x04 - Received Data Available
+            }
+            return IIR_NO_INTERRUPT;  // 0x01 - No interrupt pending
         }
 
         case 0x3FB: {
@@ -166,7 +202,21 @@ __force_inline static void uart_write(const uint32_t port, const uint8_t data) {
 
         case 0x3FC: {
             // MCR - Modem Control Register
+            // Биты: DTR (bit 0), RTS (bit 1), OUT1 (bit 2), OUT2 (bit 3), Loopback (bit 4)
+
+            const uint8_t old_mcr = uart.mcr;
             uart.mcr = data;
+
+            // Microsoft Serial Mouse: при установке RTS или DTR драйвер ожидает идентификатор
+            // ВАЖНО: отправляем идентификатор ТОЛЬКО если реально подключена USB мышь
+            const bool rts_rising = (!(old_mcr & 0x02)) && (data & 0x02);
+            const bool dtr_rising = (!(old_mcr & 0x01)) && (data & 0x01);
+
+            if ((rts_rising || dtr_rising) && is_usb_mouse_connected()) {
+                // Отправляем идентификатор Microsoft Serial Mouse (2-button)
+                // "M" = ASCII 0x4D
+                uart_write_byte('M');
+            }
             return;
         }
 
@@ -190,20 +240,3 @@ __force_inline static void uart_write(const uint32_t port, const uint8_t data) {
     }
 }
 
-// ============================================================================
-// uart_write_byte - Запись байта в UART RBR (для эмуляции входящих данных)
-// Используется для Microsoft Serial Mouse protocol
-// ============================================================================
-__force_inline static void uart_write_byte(const uint8_t data) {
-    // Вычисляем следующую позицию head
-    const uint8_t next_head = (uart.rx_head + 1) & 0x0F;
-
-    // Проверяем, не переполнен ли FIFO
-    if (next_head != uart.rx_tail) {
-        // Есть место - записываем байт
-        uart.rx_fifo[uart.rx_head] = data;
-        uart.rx_head = next_head;
-        uart.data_ready = true; // Устанавливаем флаг "данные доступны"
-    }
-    // Если FIFO переполнен - молча игнорируем (эмуляция overrun)
-}

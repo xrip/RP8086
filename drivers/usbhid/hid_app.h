@@ -18,3 +18,6 @@ bool handleScancode(uint32_t ps2scancode);
 // === Мышь (Microsoft Serial Mouse protocol) ===
 void mouse_init(void);
 // Автоматическая отправка данных через COM1 при получении HID mouse reports
+
+// Проверка подключения USB мыши (для UART идентификации)
+bool is_usb_mouse_connected(void);
