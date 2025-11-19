@@ -58,49 +58,6 @@ void __time_critical_func(bus_read_handler)() {
     pio_interrupt_clear(BUS_CTRL_PIO, 1);
 }
 
-void __time_critical_func(bus_read_handler1)() {
-    if (pio_interrupt_get(BUS_CTRL_PIO, 1)) {
-        // Прямой доступ к FIFO. pio_interrupt_get() уже подтвердил что данные есть,
-        // повторная проверка в pio_sm_get_blocking() избыточна.
-        const uint32_t bus_state = BUS_CTRL_PIO->rxf[BUS_CTRL_SM];
-
-        // Read data and send back to PIO
-        // Прямая запись в TX FIFO без проверки заполненности.
-        // PIO заблокирован на 'pull block' и активно ждёт наши данные, TX FIFO точно не полон.
-        if (unlikely(irq_pending_vector)) {
-            // INTA: возвращаем вектор прерывания (0x08 для IRQ0, 0x09 для IRQ1)
-            BUS_CTRL_PIO->txf[BUS_CTRL_SM] = irq_pending_vector;
-            irq_pending_vector = 0;
-        } else {
-            // Обычное чтение памяти/портов.
-            const uint16_t data = i8086_read(bus_state, bus_state & MIO, bus_state & BHE);
-            // if (data == 0xFFFF) {
-                // BUS_CTRL_PIO->txf[BUS_CTRL_SM] = 0;
-            // } else {
-                BUS_CTRL_PIO->txf[BUS_CTRL_SM] = data << 16 | 0xFFFF;
-            // }
-        }
-
-        // TODO если мы не можем обработать адрес, вместо того чтобы _НЕ_ перключать пины на выход - можно выполнить следующий код, чтобы отпустить шину
-        // pio_sm_exec(BUS_CTRL_PIO, BUS_CTRL_SM, pio_encode_jmp(i8086_bus_wrap_target) | pio_encode_sideset_opt(1,1)); // jmp .wrap_target side 1
-        // pio_sm_put_blocking(BUS_CTRL_PIO, BUS_CTRL_SM, 0xDEADBEEF); // Совершенно не важно что отправится в буфер, следующая команда JMP в начало
-
-        // log_event(LOG_READ, bus_state & 0xFFFFE, data, bus_state & (1 << 25), bus_state & (1 << 24));
-
-        pio_interrupt_clear(BUS_CTRL_PIO, 1);
-    } else if (pio_interrupt_get(BUS_CTRL_PIO, 3)) {
-        // INTA cycle (первый INTA pulse от CPU)
-        pio_interrupt_clear(BUS_CTRL_PIO, 3);
-
-        // Получаем вектор прерывания от i8259
-        const uint8_t vector = i8259_nextirq();
-        if (vector) {
-            irq_pending_vector = vector << 16 | 0x00FF;  // Формат: 0xFF00 | вектор
-        }
-
-    }
-}
-
 void cpu_bus_init() {
     const uint pio_offset = pio_add_program(BUS_CTRL_PIO, &i8086_bus_program);
     i8086_bus_program_init(BUS_CTRL_PIO, BUS_CTRL_SM, pio_offset);

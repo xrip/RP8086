@@ -1,11 +1,21 @@
-#include <stdio.h>
+// RP2350B Related libs
+#include <hardware/pwm.h>
+#include <pico/bootrom.h>
+#include <pico/multicore.h>
+#include <hardware/structs/qmi.h>
+#include <hardware/structs/xip.h>
 
+
+// 8086 related libs
 #include "cpu.h"
 #include "cpu_bus.h"
 #include "common.h"
 #include "graphics.h"
+
 #include "hardware/i8237.h"
-#include "hardware/pwm.h"
+#include "hardware/i8259.h"
+#include "hardware/i8253.h"
+#include "hardware/uart16550.h"
 
 #ifndef DEBUG
 #include "hid_app.h"
@@ -14,18 +24,9 @@
 #include "pico/stdio.h"
 #endif
 
-#include "hardware/watchdog.h"
-#include "pico/bootrom.h"
-#include "pico/multicore.h"
-#include "hardware/i8259.h"
-#include "hardware/i8253.h"
-#include "hardware/uart16550.h"
-#include <hardware/structs/qmi.h>
-#include <hardware/structs/xip.h>
 extern cga_s cga;
 extern mc6845_s mc6845;
 uint8_t videomode = 0;
-uint8_t crtc_register[32];
 repeating_timer_t irq0_timer;
 
 bool ctty_mode = false; // false = keyboard mode, true = CTTY mode
@@ -205,7 +206,7 @@ void psram_init(const int cs_pin) {
 }
 
 // Corrected CGA palette from https://int10h.org/blog/2022/06/ibm-5153-color-true-cga-palette/
-const uint32_t cga_palette[16] = {
+constexpr uint32_t cga_palette[16] = {
     //R, G, B
     0x000000, // 0 black
     0x0000C4, // 1 blue
@@ -408,12 +409,6 @@ bool handleScancode(const uint32_t ps2scancode) {
         // Special debug commands (uppercase variants)
         if (c == '`') {
             video_enabled = !video_enabled;
-        } else if (c == 'P') {
-            for (int i = 0; i < 31; i++) {
-                printf("%d: %x\n", i, crtc_register[i]);
-            }
-
-            // printf("\n\n CGA regs: 0x%02x 0x%02x\n\n", cga_register[0], cga_register[1]);
         } else if (c == 'C') {
             // Переключение между keyboard и CTTY режимами
             ctty_mode = !ctty_mode;

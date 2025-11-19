@@ -24,15 +24,8 @@ extern cga_s cga;
 extern mc6845_s mc6845;
 extern uint32_t cga_palette[16];
 
-// Keyboard controller (8042) state
-static uint8_t keyboard_command_byte = 0x45; // Default: interrupts enabled, system flag set
-static uint8_t keyboard_last_command = 0;
-static uint8_t keyboard_response_buffer = 0;
-static bool keyboard_has_response = false;
-
 static uint8_t crtc_index = 0;
 static uint8_t tga_index = 0;
-extern uint8_t videomode;
 
 __force_inline static uint8_t port_read8(const uint32_t address) {
     // if (address >= 0x300)
@@ -59,11 +52,6 @@ __force_inline static uint8_t port_read8(const uint32_t address) {
             return i8253_read(address);
         }
         case 0x60: {
-            // Keyboard Data Port - читаем ответ от контроллера или скан-код
-            if (keyboard_has_response) {
-                keyboard_has_response = false;
-                return keyboard_response_buffer;
-            }
             // Иначе читаем скан-код и сбрасываем
             const uint8_t scancode = current_scancode;
             current_scancode = 0;
@@ -103,7 +91,7 @@ __force_inline static uint8_t port_read8(const uint32_t address) {
             uint8_t status = 0x14; // Биты 2 (System) и 4 (Keyboard enabled) установлены
 
             // Bit 0: есть данные для чтения
-            if (current_scancode != 0 || keyboard_has_response) {
+            if (current_scancode != 0) {
                 status |= 0x01;
             }
 
@@ -149,44 +137,16 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
             } else {
                 pwm_set_gpio_level(BEEPER_PIN, 0);
             }
+
             if ((data & 0x40) && !(port61 & 0x40)) {
                 current_scancode = 0xAA;
                 i8259_interrupt(1);
-#ifdef DEBUG_PPI
-                debug_log(DEBUG_DETAIL, "[I8255] Keyboard reset\r\n");
-#endif
             }
+
             port61 = data;
             return;
         }
-        case 0x64: {
-            // Keyboard Controller Command Register (Intel 8042)
-            keyboard_last_command = data;
 
-            switch (data) {
-                case 0x20: // Read command byte
-                    keyboard_response_buffer = keyboard_command_byte;
-                    keyboard_has_response = true;
-                    break;
-                case 0x60: // Write command byte (next byte to 0x60)
-                    // Ожидаем данные в порт 0x60
-                    break;
-                case 0xAA: // Self test
-                    keyboard_response_buffer = 0x55; // Self test passed
-                    keyboard_has_response = true;
-                    break;
-                case 0xAD: // Disable keyboard
-                    keyboard_command_byte &= ~0x10; // Clear bit 4
-                    break;
-                case 0xAE: // Enable keyboard
-                    keyboard_command_byte |= 0x10; // Set bit 4
-                    break;
-                default:
-                    // Неизвестная команда - игнорируем
-                    break;
-            }
-            return;
-        }
         case 0x81:
         case 0x82:
         case 0x83:
