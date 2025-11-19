@@ -268,6 +268,8 @@ bool handleScancode(const uint32_t ps2scancode) {
 #ifndef DEBUG
     tusb_init();
     keyboard_init();
+    mouse_init();  // Инициализация поддержки Microsoft Serial Mouse
+
 #else
     stdio_init_all();
     // while (!stdio_usb_connected()) { tight_loop_contents(); }

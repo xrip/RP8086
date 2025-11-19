@@ -17,7 +17,4 @@ bool handleScancode(uint32_t ps2scancode);
 
 // === Мышь (Microsoft Serial Mouse protocol) ===
 void mouse_init(void);
-
-// TODO: Добавить функцию для получения состояния мыши
-// mouse_state_t* mouse_get_state(void);
-// void mouse_send_to_uart(void); // Отправка данных через COM1
+// Автоматическая отправка данных через COM1 при получении HID mouse reports

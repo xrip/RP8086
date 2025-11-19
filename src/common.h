@@ -121,7 +121,7 @@ typedef struct {
 } dma_channel_s;
 
 typedef struct {
-    uint8_t rbr;           // Receive Buffer Register (один байт входящих данных)
+    uint8_t rbr;           // Receive Buffer Register (текущий байт для чтения)
     uint8_t thr;           // Transmit Holding Register (для отправки)
     uint8_t ier;           // Interrupt Enable Register
     uint8_t iir;           // Interrupt Identification Register
@@ -131,6 +131,11 @@ typedef struct {
     uint8_t msr;           // Modem Status Register
     uint16_t divisor;      // Divisor latch (для baud rate, игнорируем)
     bool data_ready;       // Флаг: есть данные в RBR для чтения
+
+    // FIFO буфер для приема данных (для Microsoft Serial Mouse)
+    uint8_t rx_fifo[16];   // Приемный FIFO (достаточно для нескольких mouse packets)
+    uint8_t rx_head;       // Индекс головы (куда писать)
+    uint8_t rx_tail;       // Индекс хвоста (откуда читать)
 } uart_16550_s;
 
 // Consolidated controller state for tighter locality; align to cache line for fast access

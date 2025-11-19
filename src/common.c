@@ -5,8 +5,8 @@
 IMPORT_BIN("./binary/GLABIOS.ROM", BIOS);
 // IMPORT_BIN("./binary/landmark.bin", BIOS);
 // IMPORT_BIN("./binary/ruuds_diagnostic_rom_v5.4_8kb.bin", BIOS);
-// IMPORT_BIN("./binary/checkit.img", FLOPPY);
-IMPORT_BIN("./binary/os.img", FLOPPY);
+IMPORT_BIN("./binary/checkit.img", FLOPPY);
+// IMPORT_BIN("./binary/os.img", FLOPPY);
 
 
 uint8_t RAM[RAM_SIZE] __attribute__((aligned(4), section(".psram")));

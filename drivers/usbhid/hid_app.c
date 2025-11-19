@@ -4,13 +4,14 @@
 //
 // Архитектура:
 //   - Keyboard: USB HID → XT Scancode → handleScancode() в main app
-//   - Mouse: USB HID → Microsoft Serial Mouse protocol → COM1 (TODO)
+//   - Mouse: USB HID → Microsoft Serial Mouse protocol → COM1
 // ========================================
 
 #include "hid_app.h"
 #include "tusb.h"
 #include "class/hid/hid.h"
 #include "pico/util/queue.h"
+#include "../src/hardware/uart16550.h"  // Для отправки данных мыши через COM1
 
 // ========================================
 // === Клавиатура (USB HID → XT Scancode) ===
@@ -20,15 +21,8 @@ static hid_keyboard_report_t prev_report = {0, 0, {0}};
 // ========================================
 // === Мышь (Microsoft Serial Mouse) ===
 // ========================================
-
-// Структура состояния мыши для Microsoft Serial Mouse protocol
-typedef struct {
-    int8_t x;           // Смещение по X (-127..+127)
-    int8_t y;           // Смещение по Y (-127..+127)
-    uint8_t buttons;    // Биты кнопок: bit0=Left, bit1=Right, bit2=Middle
-} mouse_state_t;
-
-static mouse_state_t mouse_state = {0};
+// Обрабатываем HID mouse reports и конвертируем их напрямую в
+// Microsoft Serial Mouse protocol (3 байта через COM1 UART)
 
 // The main emulator wants XT ("set 1") scancodes. Who are we to disappoint them?
 // ref1: adafrhit_hid/keycode.py
@@ -149,7 +143,9 @@ void keyboard_init(void) {
 }
 
 void mouse_init() {
-    // TODO: Initialize mouse support (Microsoft Serial Mouse protocol)
+    // Инициализация завершена в keyboard_init()
+    // Microsoft Serial Mouse не требует дополнительной инициализации
+    // Данные будут отправляться через UART FIFO при получении HID reports
 }
 
 static void kbd_add_sequence(const uint8_t *sequence) {
@@ -223,22 +219,59 @@ static void find_released_keys(hid_keyboard_report_t const* report) {
 //   Byte 1: [0 0 X5 X4 X3 X2 X1 X0] - младшие 6 бит X смещения
 //   Byte 2: [0 0 Y5 Y4 Y3 Y2 Y1 Y0] - младшие 6 бит Y смещения
 static void process_mouse_report(uint8_t const* report, uint16_t len) {
-    // TODO: Парсинг HID mouse report (стандартный формат: buttons, x, y)
-    // TODO: Отправка данных через COM1 (Microsoft Serial Mouse protocol)
-    // TODO: Интеграция с UART emulation (hardware/uart.h)
-
     if (len < 3) return; // Минимальный размер HID mouse report
 
+    // ========================================
+    // Шаг 1: Парсинг HID mouse report
+    // ========================================
     // Стандартный HID mouse report format:
     // Byte 0: buttons (bit0=L, bit1=R, bit2=Middle)
     // Byte 1: X movement (signed 8-bit)
     // Byte 2: Y movement (signed 8-bit)
 
-    mouse_state.buttons = report[0] & 0x07;
-    mouse_state.x = (int8_t)report[1];
-    mouse_state.y = (int8_t)report[2];
+    const uint8_t buttons = report[0] & 0x03; // Берём только L и R кнопки (Microsoft Serial Mouse = 2-button)
+    int8_t dx = (int8_t)report[1];
+    int8_t dy = (int8_t)report[2];
 
-    // TODO: Конвертация в Microsoft Serial Mouse формат и отправка через COM1
+    // ========================================
+    // Шаг 2: Конвертация в Microsoft Serial Mouse protocol
+    // ========================================
+    // Microsoft Serial Mouse использует 7-битные координаты со знаком
+    // Диапазон: -64..+63 (6 бит + знак в старшем бите синхронизации)
+
+    // Ограничиваем координаты до ±63 (чтобы влезли в 6 бит + знак)
+    if (dx > 63) dx = 63;
+    if (dx < -64) dx = -64;
+    if (dy > 63) dy = 63;
+    if (dy < -64) dy = -64;
+
+    // Формируем 3 байта протокола Microsoft Serial Mouse
+    uint8_t packet[3];
+
+    // Byte 0: [0 1 L R Y7 Y6 X7 X6]
+    //   биты 7,6 = 0,1 (синхронизация)
+    //   бит 5 = Left button (1=нажата)
+    //   бит 4 = Right button (1=нажата)
+    //   биты 3,2 = старшие биты Y (Y7, Y6)
+    //   биты 1,0 = старшие биты X (X7, X6)
+    packet[0] = 0x40;  // Биты 7,6 = 0,1
+    packet[0] |= ((buttons & 0x01) << 5);  // Left button → bit 5
+    packet[0] |= ((buttons & 0x02) << 3);  // Right button → bit 4
+    packet[0] |= ((dy >> 4) & 0x0C);       // Y7,Y6 → bits 3,2
+    packet[0] |= ((dx >> 6) & 0x03);       // X7,X6 → bits 1,0
+
+    // Byte 1: [0 0 X5 X4 X3 X2 X1 X0]
+    packet[1] = dx & 0x3F;
+
+    // Byte 2: [0 0 Y5 Y4 Y3 Y2 Y1 Y0]
+    packet[2] = dy & 0x3F;
+
+    // ========================================
+    // Шаг 3: Отправка через COM1 (UART)
+    // ========================================
+    uart_write_byte(packet[0]);
+    uart_write_byte(packet[1]);
+    uart_write_byte(packet[2]);
 }
 
 void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const* desc_report, uint16_t desc_len) {

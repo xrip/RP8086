@@ -52,10 +52,19 @@ __force_inline static uint8_t uart_read(const uint32_t port) {
                 // DLAB=1: возвращаем младший байт делителя
                 return uart.divisor & 0xFF;
             }
-            // DLAB=0: возвращаем принятый байт
-            const uint8_t data = uart.rbr;
-            uart.data_ready = false; // Сбросить флаг после чтения
-            return data;
+            // DLAB=0: читаем байт из FIFO
+            if (uart.rx_tail != uart.rx_head) {
+                // Есть данные в FIFO - извлекаем
+                const uint8_t data = uart.rx_fifo[uart.rx_tail];
+                uart.rx_tail = (uart.rx_tail + 1) & 0x0F; // Кольцевой буфер (16 элементов)
+
+                // Обновляем data_ready: если FIFO опустел, сбрасываем флаг
+                uart.data_ready = (uart.rx_tail != uart.rx_head);
+                return data;
+            }
+            // FIFO пуст - возвращаем старое значение rbr (для совместимости)
+            uart.data_ready = false;
+            return uart.rbr;
         }
 
         case 0x3F9: {
@@ -179,4 +188,22 @@ __force_inline static void uart_write(const uint32_t port, const uint8_t data) {
         default:
             return;
     }
+}
+
+// ============================================================================
+// uart_write_byte - Запись байта в UART RBR (для эмуляции входящих данных)
+// Используется для Microsoft Serial Mouse protocol
+// ============================================================================
+__force_inline static void uart_write_byte(const uint8_t data) {
+    // Вычисляем следующую позицию head
+    const uint8_t next_head = (uart.rx_head + 1) & 0x0F;
+
+    // Проверяем, не переполнен ли FIFO
+    if (next_head != uart.rx_tail) {
+        // Есть место - записываем байт
+        uart.rx_fifo[uart.rx_head] = data;
+        uart.rx_head = next_head;
+        uart.data_ready = true; // Устанавливаем флаг "данные доступны"
+    }
+    // Если FIFO переполнен - молча игнорируем (эмуляция overrun)
 }
