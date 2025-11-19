@@ -22,7 +22,6 @@ uint8_t port61 = 0;  // System Control Port B (8255 PPI Port B)
 
 extern cga_s cga;
 extern mc6845_s mc6845;
-extern uint32_t cga_palette[16];
 
 static uint8_t crtc_index = 0;
 static uint8_t tga_index = 0;
@@ -58,13 +57,6 @@ __force_inline static uint8_t port_read8(const uint32_t address) {
             return scancode;
         }
         case 0x61: {
-            // System Control Port B (8255 PPI Port B)
-            // Bit 0: Timer 2 gate to speaker
-            // Bit 1: Speaker data enable
-            // Bit 4: RAM parity check (1=no error)
-            // Bit 5: I/O channel check (1=no error)
-            // Возвращаем сохраненное значение с установленными битами 4-5 (нет ошибок)
-            port61 ^= 0x10;
             return port61;
         }
             case 0x62: {

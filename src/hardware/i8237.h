@@ -19,19 +19,17 @@
 #define DMA_MASK_REGISTER 0x0F
 
 #define DMA_CHANNELS 4
-#include "common.h"
 extern dma_channel_s dma_channels[DMA_CHANNELS];
+
+static bool byte_flipflop;
 
 // Forward declaration для i8259_interrupt (определена в i8259.h)
 __force_inline static void i8259_interrupt(const uint8_t irq);
 
-static bool byte_pointer_flipflop, memory_to_memory_enabled;
-
 
 __force_inline static void i8237_reset() {
     memset(dma_channels, 0x00, sizeof(dma_channel_s) * DMA_CHANNELS);
-    memory_to_memory_enabled = false;
-    byte_pointer_flipflop = 0;  // CRITICAL: Master Clear сбрасывает flipflop!
+    byte_flipflop = 0;
     dma_channels[0].masked = 1;
     dma_channels[1].masked = 1;
     dma_channels[2].masked = 1;
@@ -45,7 +43,7 @@ __force_inline static void i8237_writeport(const uint16_t port_number, const uin
 
             if (port_number & 0x01) {
                 // Count register (порты 0x01, 0x03, 0x05, 0x07)
-                if (byte_pointer_flipflop) {
+                if (byte_flipflop) {
                     // HIGH byte: сохраняем LOW, записываем HIGH
                     dma_channels[channel].count = (dma_channels[channel].count & 0x00FF) | ((uint16_t) data << 8);
                 } else {
@@ -57,7 +55,7 @@ __force_inline static void i8237_writeport(const uint16_t port_number, const uin
                           get_absolute_time(), channel, port_number, byte_pointer_flipflop, data, dma_channels[channel].count);
             } else {
                 // Программируем ТОЛЬКО reload_address (base register)
-                if (byte_pointer_flipflop) {
+                if (byte_flipflop) {
                     // HIGH byte (второй вызов): сохраняем LOW byte, записываем HIGH
                     dma_channels[channel].reload_address = (dma_channels[channel].reload_address & 0x00FF) | ((uint16_t) data << 8);
 
@@ -76,11 +74,11 @@ __force_inline static void i8237_writeport(const uint16_t port_number, const uin
             }
 
 
-            byte_pointer_flipflop ^= 1;
+            byte_flipflop ^= 1;
             break;
         }
         case DMA_COMMAND_REGISTER: //DMA channel 0-3 command register
-            memory_to_memory_enabled = data & 1;
+            // memory_to_memory_enabled = data & 1;
             // Bit 5: Auto-initialize enable (affects ALL channels!)
             for (int i = 0; i < DMA_CHANNELS; i++) {
                 dma_channels[i].auto_init = (data >> 5) & 1;
@@ -129,7 +127,7 @@ __force_inline static void i8237_writeport(const uint16_t port_number, const uin
             debug_log("DMA CLEAR_MASK: All channels unmasked\n");
             break;
         case DMA_CLEAR_FF: //clear byte pointer flipflop
-            byte_pointer_flipflop = 0;
+            byte_flipflop = 0;
             debug_log("DMA CLEAR_FF: byte_pointer_flipflop reset to 0\n");
             break;
         case DMA_MASK_REGISTER: {
@@ -184,7 +182,7 @@ __force_inline static uint8_t i8237_readport(const uint16_t port_number) {
 
             if (port_number & 1) {
                 //count - возвращаем CURRENT count (текущее значение), а не reload
-                if (byte_pointer_flipflop) {
+                if (byte_flipflop) {
                     register_value = (uint8_t) (dma_channels[channel].count >> 8);
                 } else {
                     register_value = (uint8_t) dma_channels[channel].count;
@@ -193,7 +191,7 @@ __force_inline static uint8_t i8237_readport(const uint16_t port_number) {
                       get_absolute_time(), channel, port_number, byte_pointer_flipflop, register_value, dma_channels[channel].count);
             } else {
                 //address
-                if (byte_pointer_flipflop) {
+                if (byte_flipflop) {
                     register_value = (uint8_t) (dma_channels[channel].address >> 8);
                 } else {
                     register_value = (uint8_t) dma_channels[channel].address;
@@ -201,7 +199,7 @@ __force_inline static uint8_t i8237_readport(const uint16_t port_number) {
                 debug_log("[%llu] DMA READ ADDRESS: CH%d port=0x%02X, flipflop=%d, value=0x%02X, full_addr=0x%04X\n",
                       get_absolute_time(), channel, port_number, byte_pointer_flipflop, register_value, dma_channels[channel].address);
             }
-            byte_pointer_flipflop ^= 1;
+            byte_flipflop ^= 1;
             break;
         }
         case 0x08: {

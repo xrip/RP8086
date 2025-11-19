@@ -16,9 +16,9 @@ extern pwm_config pwm;
 extern repeating_timer_t irq0_timer;
 
 static bool irq0_timer_callback(struct repeating_timer *t) {
-    const auto channel = (i8253_channel_s *) t->user_data;
+    const auto operating_mode = (uint8_t *) t->user_data;
     i8259_interrupt(0);
-    return channel->operating_mode != 0;
+    return *operating_mode != 0;
 }
 
 __force_inline static uint16_t i8253_get_current_count(const i8253_channel_s *channel) {
@@ -90,13 +90,7 @@ __force_inline static void i8253_write(const uint16_t port_number, const uint8_t
 
             cancel_repeating_timer(&irq0_timer);
 
-            //irq0_timer.delay_us = -timer_interval;
-            add_repeating_timer_us(
-                -timer_interval,        // период
-                irq0_timer_callback, // ваш callback
-                &channel,
-                &irq0_timer
-            );
+            add_repeating_timer_us(-timer_interval, irq0_timer_callback, &channel->operating_mode, &irq0_timer);
 
         } else if (channel_index == 2) {
             pwm_config_set_wrap(&pwm, channel->reload_value);
