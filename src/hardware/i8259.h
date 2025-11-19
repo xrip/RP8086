@@ -85,7 +85,7 @@ __force_inline static uint8_t i8259_get_pending_irqs() {
 }
 
 __force_inline static void i8259_interrupt(const uint8_t irq) {
-    // Устанавливаем бит в IRR если IRQ не замаскирован
+    // Устанавливаем бит в IRR если IRQ
     i8259.interrupt_request_register |= 1 << irq;
 }
 
