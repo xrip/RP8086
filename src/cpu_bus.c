@@ -18,11 +18,7 @@ __force_inline static uint16_t i8086_read(const uint32_t address, const bool is_
 
 __force_inline static void i8086_write(const uint32_t address, const uint16_t data,
                                         const bool is_memory_access, const bool bhe) {
-    if (is_memory_access) {
-        memory_write(address, data, bhe);
-    } else {
-        port_write(address, data, bhe);
-    }
+    return is_memory_access ? memory_write(address, data, bhe) : port_write(address, data, bhe);
 }
 
 void __time_critical_func(bus_write_handler)() {
