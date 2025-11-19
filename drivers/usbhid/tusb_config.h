@@ -28,6 +28,11 @@
 #define CFG_TUSB_OS                 OPT_OS_NONE
 #endif
 
+#ifndef BOARD_TUH_RHPORT
+#define BOARD_TUH_RHPORT      0
+#endif
+
+
 // USB DMA on some MCUs can only access a specific SRAM region with restriction on alignment.
 // Tinyusb use follows macros to declare transferring memory so that they can be put
 // into those specific section.
@@ -48,7 +53,7 @@
 //--------------------------------------------------------------------
 
 // Size of buffer to hold descriptors and other data used for enumeration
-#define CFG_TUH_ENUMERATION_BUFSIZE 32
+#define CFG_TUH_ENUMERATION_BUFSIZE 256
 
 #define CFG_TUH_HUB                 1
 #define CFG_TUH_CDC                 0
