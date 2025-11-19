@@ -52,12 +52,14 @@ __force_inline static void i8259_write(const uint16_t port_number, const uint8_t
                 //                i8259.ocw[2] = register_value;
                 switch (data & 0xE0) {
                     case 0x20: //non-specific EOI
-                        i8259.interrupt_request_register &= ~i8259.in_service_register;
-                        i8259.in_service_register = 0x00;
+                        if (i8259.in_service_register) {
+                            // __builtin_ctz возвращает количество нулей справа (индекс первого установленного бита)
+                            const uint8_t highest_prio_isr = __builtin_ctz(i8259.in_service_register);
+                            i8259.in_service_register &= ~(1 << highest_prio_isr);
+                        }
                         break;
                     case 0x60: //specific EOI
-                        i8259.interrupt_request_register &= ~(1 << (data & 0x03));
-                        i8259.in_service_register &= ~(1 << (data & 0x03));
+                        i8259.in_service_register &= ~(1 << (data & 0x07)); // Только ISR!
                         break;
                     default: //other
 
@@ -65,9 +67,11 @@ __force_inline static void i8259_write(const uint16_t port_number, const uint8_t
                 }
             } else {
                 //OCW3
-                //                i8259.ocw[3] = register_value;
-                if (data & 0x02) {
-                    i8259.register_read_mode = data & 1;
+                if (data & 0x08) { // Bit 3 должен быть 1 для OCW3
+                    if (data & 0x02) { // Bit 1 = RR (Read Register)
+                        // Bit 0 = RIS (0=IRR, 1=ISR)
+                        i8259.register_read_mode = data & 1;
+                    }
                 }
             }
             break;

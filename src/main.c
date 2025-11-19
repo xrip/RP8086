@@ -26,7 +26,8 @@ extern cga_s cga;
 extern mc6845_s mc6845;
 uint8_t videomode = 0;
 uint8_t crtc_register[32];
-uint32_t timer_interval = 54925;
+repeating_timer_t irq0_timer;
+
 bool ctty_mode = false; // false = keyboard mode, true = CTTY mode
 uint8_t current_scancode = 0; // 0 = нет данных
 pwm_config pwm;
@@ -112,29 +113,18 @@ static void pic_init(void) {
 // ============================================================================
 // Core1: Обработка i8086_bus
 // ============================================================================
+
 [[noreturn]] void bus_handler_core(void) {
     start_cpu_clock(); // Start i8086 clock generator
     pic_init(); // Initialize interrupt controller and start Core1 IRQ generator
     cpu_bus_init(); // Initialize bus BEFORE releasing i8086 from reset
     reset_cpu(); // Now i8086 can safely start
 
-    absolute_time_t next_irq0 = get_absolute_time();
-    next_irq0 = delayed_by_us(next_irq0, timer_interval);
-
     while (true) {
-        // ═══════════════════════════════════════════════════════
-        // 1. Генерация таймерного прерывания IRQ0 (18.2 Hz)
-        // ═══════════════════════════════════════════════════════
-        if (absolute_time_diff_us(next_irq0, get_absolute_time()) >= 0) {
-            i8259_interrupt(0);
-            next_irq0 = delayed_by_us(next_irq0, timer_interval);
-        }
-
-        // ═══════════════════════════════════════════════════════
-        // 2. Управление сигналом INTR (проверка pending IRQ в IRR)
-        // ═══════════════════════════════════════════════════════
+        // Управление сигналом INTR
         gpio_put(INTR_PIN, i8259_get_pending_irqs());
 
+        __wfe();
         tight_loop_contents();
     }
 }
@@ -315,7 +305,7 @@ bool handleScancode(const uint32_t ps2scancode) {
             if (channel->dreq && !channel->masked) {
                 // Вычисляем физический адрес назначения
                 const uint32_t dest_addr = channel->page + channel->address;
-                const size_t size = (uint32_t)channel->count + 1;
+                const size_t size = (uint32_t) channel->count + 1;
 
                 memcpy(&RAM[dest_addr], channel->data_source, size);
 
@@ -323,15 +313,13 @@ bool handleScancode(const uint32_t ps2scancode) {
                 update_count(channel, size);
 
                 // Генерируем IRQ если назначен (после завершения передачи!)
-                if (channel->finished ) {
+                if (channel->finished) {
                     channel->dreq = 0;
 
                     if (channel->irq)
                         i8259_interrupt(channel->irq);
                     // printf("DMA CH%i transfer compete from %x to %x size %x, irq %d\n", dma_channels-channel, channel->data_source, dest_addr, size, channel->irq);
                 }
-
-
             }
         }
 

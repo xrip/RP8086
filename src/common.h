@@ -23,7 +23,7 @@
 
 
 
-#define I8086_CLOCK_SPEED    (5750 * KHZ)  // i8086 clock frequency
+#define I8086_CLOCK_SPEED    (6000 * KHZ)  // i8086 clock frequency
 #define I8086_DUTY_CYCLE     (33)          // 33% duty cycle required for i8086
 
 #define VIDEORAM_SIZE        (32 * 1024)   // Tandy/PC Jr compat
@@ -94,6 +94,7 @@ typedef struct {
     uint8_t latch_mode;          // Режим latch: 0=нет, 1=lobyte, 2=hibyte, 3=toggle
     uint16_t latched_value;      // Защёлкнутое значение для LATCHCOUNT
     uint64_t start_timestamp_us; // Временная метка старта
+    uint8_t operating_mode;
 } i8253_channel_s;
 
 // Intel 8253 Programmable Interval Timer (3 независимых канала)

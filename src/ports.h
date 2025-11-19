@@ -139,13 +139,7 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
             return i8253_write(address, data);
         }
         case 0x60: {
-            // Keyboard Data Port - запись данных (response to command)
-            // Обработка зависит от последней команды
-            if (keyboard_last_command == 0x60) {
-                // Write command byte
-                keyboard_command_byte = data;
-                keyboard_last_command = 0;
-            }
+            current_scancode = 0xAA;
             return;
         }
         case 0x61: {
@@ -155,7 +149,14 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
             } else {
                 pwm_set_gpio_level(BEEPER_PIN, 0);
             }
-            port61 = (port61 & 0x10) | (data & 0x0f);
+            if ((data & 0x40) && !(port61 & 0x40)) {
+                current_scancode = 0xAA;
+                i8259_interrupt(1);
+#ifdef DEBUG_PPI
+                debug_log(DEBUG_DETAIL, "[I8255] Keyboard reset\r\n");
+#endif
+            }
+            port61 = data;
             return;
         }
         case 0x64: {

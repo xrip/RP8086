@@ -9,15 +9,30 @@
 #define PIT_FREQUENCY        1193182
 
 extern i8253_s i8253;
-extern uint32_t timer_interval;
+extern i8259_s i8259;
 extern uint8_t port61;
 extern pwm_config pwm;
 
-__force_inline static uint16_t i8253_get_current_count(i8253_channel_s *ch) {
-    const uint32_t reload = ch->reload_value ? : 65536;
+extern repeating_timer_t irq0_timer;
+
+static bool irq0_timer_callback(struct repeating_timer *t) {
+    const auto channel = (i8253_channel_s *) t->user_data;
+    i8259_interrupt(0);
+    return channel->operating_mode != 0;
+}
+
+__force_inline static uint16_t i8253_get_current_count(const i8253_channel_s *channel) {
+    const uint32_t reload = channel->reload_value ? : 65536;
     const uint64_t now = get_absolute_time();
 
-    const uint64_t ticks = ((now - ch->start_timestamp_us) * PIT_FREQUENCY) / 1000000ULL;
+    const uint64_t ticks = ((now - channel->start_timestamp_us) * PIT_FREQUENCY) / 1000000ULL;
+
+    if ((channel->operating_mode & 7) == 0) {
+        if (!channel->active) return 0;
+        if (ticks >= reload) return 0;
+        return (uint16_t)(reload - ticks);
+    }
+
     return (uint16_t) (reload - 1 - ticks % reload);
 }
 
@@ -70,7 +85,19 @@ __force_inline static void i8253_write(const uint16_t port_number, const uint8_t
         // Канал 0 управляет системным таймером
         if (channel_index == 0) {
             const uint32_t reload_value = channel->reload_value ? : 65536;
-            timer_interval = (uint32_t) (((uint64_t) reload_value * 1000000ULL) / PIT_FREQUENCY);
+            const int64_t timer_interval = (uint32_t) (((uint64_t) reload_value * 1000000ULL) / PIT_FREQUENCY);
+            i8259.interrupt_request_register &= ~(1 << 0);
+
+            cancel_repeating_timer(&irq0_timer);
+
+            //irq0_timer.delay_us = -timer_interval;
+            add_repeating_timer_us(
+                -timer_interval,        // период
+                irq0_timer_callback, // ваш callback
+                &channel,
+                &irq0_timer
+            );
+
         } else if (channel_index == 2) {
             pwm_config_set_wrap(&pwm, channel->reload_value);
             pwm_init(pwm_gpio_to_slice_num(BEEPER_PIN), &pwm, true);
@@ -80,6 +107,7 @@ __force_inline static void i8253_write(const uint16_t port_number, const uint8_t
         // Запись Control Word (порт 0x43)
         const uint8_t access_mode = (data >> 4) & 3;
         i8253_channel_s *channel = &i8253.channels[data >> 6];
+        const uint8_t mode = (data >> 1) & 7; // !!! Operating Mode (биты 1-3) !!!
 
         if (access_mode == PIT_MODE_LATCHCOUNT) {
             channel->latched_value = i8253_get_current_count(channel);
@@ -87,6 +115,7 @@ __force_inline static void i8253_write(const uint16_t port_number, const uint8_t
             channel->byte_toggle = 0;
         } else {
             channel->access_mode = access_mode;
+            channel->operating_mode = mode;
             channel->reload_value = 0;
             channel->active = false;
             channel->latch_mode = 0;
