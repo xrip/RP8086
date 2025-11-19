@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-RP8086 is a hardware-software complex that uses a Raspberry Pi Pico (RP2040) as a chipset for the Intel 8086 processor. The RP2040 acts as:
+RP8086 is a hardware-software complex that uses a Raspberry Pi Pico (RP2350B) as a chipset for the Intel 8086 processor. The RP2350B acts as:
 - Bus controller (via PIO state machine)
 - ROM/RAM emulator (192KB RAM + 8KB BIOS)
 - I/O controller (Intel 8259A, 8253, 8237, 8272A emulation)
@@ -19,7 +19,7 @@ The system successfully boots DR-DOS 7 from emulated floppy disk.
 cd cmake-build-release
 cmake --build .
 
-# Output: bin/rp2040/Release/RP8086.uf2 (flashable to RP2040)
+# Output: bin/RP2350B/Release/RP8086.uf2 (flashable to RP2350B)
 ```
 
 **Build Requirements:**
@@ -39,7 +39,7 @@ cmake --build .
 ### Two-Layer Bus Design
 
 **Layer 1: PIO (Hardware - i8086_bus.pio)**
-- Runs independently on RP2040's Programmable I/O state machine at 400 MHz (clkdiv = 1.0, no frequency divider)
+- Runs independently on RP2350B's Programmable I/O state machine at 400 MHz (clkdiv = 1.0, no frequency divider)
 - Handles all timing-critical bus operations in hardware
 - Manages i8086 bus signals: ALE, RD, WR, M/IO, BHE, INTA, READY
 - Controls bidirectional data bus (GPIO 0-15)
@@ -190,18 +190,18 @@ Edit `port_read8()` and `port_write8()` in `ports.h`. Add switch cases for the p
 ## Performance Considerations
 
 **System Clocks:**
-- RP2040: 400 MHz (overclocked with voltage boost)
+- RP2350B: 400 MHz (overclocked with voltage boost)
 - PIO: 400 MHz (clkdiv = 1.0, no frequency divider)
 - i8086: 3.5 MHz (configurable, currently stable at this frequency)
 
 **Available Ticks & Core 1 Load Analysis:**
-- **Total Ticks:** The RP2040 provides 400,000,000 ticks per second for Core 1.
-- **Ticks per i8086 Cycle:** There are approximately 114 RP2040 ticks for every 1 i8086 clock cycle (400 MHz / 3.5 MHz = ~114 ticks).
+- **Total Ticks:** The RP2350B provides 400,000,000 ticks per second for Core 1.
+- **Ticks per i8086 Cycle:** There are approximately 114 RP2350B ticks for every 1 i8086 clock cycle (400 MHz / 3.5 MHz = ~114 ticks).
 - **PIO Processing Time:** PIO state machine handles bus protocol in hardware with deterministic timing (2.5 ns per instruction at 400 MHz).
 - **Bus Handling:** Core 1's primary critical task is servicing PIO interrupts for i8086 bus cycles. The time spent in these interrupt handlers dictates the number of wait states for the i8086.
 - **Worst-Case Load Calculation:**
   - The i8086, at 3.5 MHz, can initiate a theoretical maximum of 875,000 bus cycles per second (assuming 4 clock cycles per bus access).
-  - A conservative estimate for the `bus_read_handler` execution time is ~200 RP2040 clock cycles.
+  - A conservative estimate for the `bus_read_handler` execution time is ~200 RP2350B clock cycles.
   - Total ticks consumed by handlers per second: `875,000 bus_cycles/sec * 200 ticks/cycle = 175,000,000` ticks.
   - **Core 1 Load:** `(175,000,000 / 400,000,000) * 100% = 43.75%`.
 
@@ -258,7 +258,7 @@ Edit `i8086_bus.pio` carefully - timing-sensitive:
 - **'M'**: Memory dump (interactive - prompts for address)
 - **'V'**: Video RAM dump (first 5 lines × 80 characters)
 - **'R'**: Reset CPU
-- **'B'**: Reboot RP2040 to bootloader mode
+- **'B'**: Reboot RP2350B to bootloader mode
 
 **Regular input:**
 - All other characters converted to scancodes and sent to i8086
