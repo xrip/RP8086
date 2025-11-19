@@ -1,7 +1,6 @@
 #pragma once
 #include <stdint.h>
 #include <string.h>
-#include <stdbool.h>
 #include <stdio.h>
 #include <hardware/vreg.h>
 #include <hardware/clocks.h>
@@ -19,9 +18,6 @@
 
 #define PICO_CLOCK_SPEED     (500 * MHZ)  // Raspberry Pi Pico clock frequency
 #define PSRAM_FREQ_MHZ       (166 * MHZ)
-
-
-
 
 #define I8086_CLOCK_SPEED    (6000 * KHZ)  // i8086 clock frequency
 #define I8086_DUTY_CYCLE     (33)          // 33% duty cycle required for i8086
