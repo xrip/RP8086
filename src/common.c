@@ -2,10 +2,12 @@
 #include "hardware/i8237.h"
 #include "hardware/i8272.h"
 
-IMPORT_BIN("./binary/GLABIOS.ROM", BIOS);
-// IMPORT_BIN("./binary/landmark.bin", BIOS);
-IMPORT_BIN("./binary/checkit.img", FLOPPY);
-// IMPORT_BIN("./binary/dummy.bin", FLOPPY);
+// IMPORT_BIN("./binary/GLABIOS.ROM", BIOS);
+IMPORT_BIN("./binary/landmark.bin", BIOS);
+//https://minuszerodegrees.net/ruuds_diagnostic_rom/clones/Ruuds%20Diagnostic%20ROM%20-%20PC%20and%20XT%20clones.htm
+// IMPORT_BIN("./binary/ruuds_diagnostic_rom_v5.4_8kb.bin", BIOS);
+// IMPORT_BIN("./binary/checkit.img", FLOPPY);
+IMPORT_BIN("./binary/dummy.bin", FLOPPY);
 
 
 uint8_t RAM[RAM_SIZE] __attribute__((aligned(4), section(".psram")));
