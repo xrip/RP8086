@@ -27,7 +27,7 @@
 #define I8086_DUTY_CYCLE     (33)          // 33% duty cycle required for i8086
 
 #define VIDEORAM_SIZE        (32 * 1024)   // Tandy/PC Jr compat
-#define RAM_SIZE             (64 * 1024)
+#define RAM_SIZE             (736 * 1024)
 #define UMB_SIZE             (128 * 1024)
 
 #define BIOS_ROM_SIZE        (8 * 1024)                         // 8KB BIOS
