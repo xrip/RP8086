@@ -146,9 +146,9 @@ static const usb_to_xt conversion[] = {
     [231] = { "\xe0\x5c"      , "\xe0\xdc"       }, // RWin (USB: RGUI)
 };
 
-static queue_t kq;
+static queue_t keyboard_queue;
 void keyboard_init(void) {
-    queue_init(&kq, /* element_size */ sizeof(uint8_t), /* element_count */ 32);
+    queue_init(&keyboard_queue, sizeof(uint8_t), 32);
 }
 
 void mouse_init() {
@@ -167,7 +167,7 @@ static void kbd_add_sequence(const uint8_t *sequence) {
     if (!sequence)
         return;
     while(*sequence) {
-        queue_try_add(&kq, sequence++);
+        queue_try_add(&keyboard_queue, sequence++);
     }
 }
 
@@ -342,7 +342,7 @@ void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t instance) {
 void keyboard_tick(void) {
     tuh_task();
     uint8_t xt_code;
-    if (queue_try_remove(&kq, &xt_code)) {
+    if (queue_try_remove(&keyboard_queue, &xt_code)) {
         handleScancode(xt_code);
     }
 }
