@@ -18,6 +18,11 @@
 #define DMA_CLEAR_MASK_REGISTER 0x0E  // Clear Mask Register (unmask all channels)
 #define DMA_MASK_REGISTER 0x0F
 
+#define DMA_SOURCE_MEM_READ   0x00
+#define DMA_SOURCE_FILE_READ  0x01
+#define DMA_SOURCE_MEM_WRITE  0x10
+#define DMA_SOURCE_FILE_WRITE 0x11
+
 #define DMA_CHANNELS 4
 extern dma_channel_s dma_channels[DMA_CHANNELS];
 

@@ -16,7 +16,6 @@
 #include "hardware/i8259.h"
 #include "hardware/i8253.h"
 #include "hardware/uart16550.h"
-#include "pico/stdio_usb.h"
 
 #ifndef DEBUG
 #include "hid_app.h"
@@ -278,14 +277,14 @@ bool handleScancode(const uint32_t ps2scancode) {
 #endif
     // Mount SD card filesystem
     if (FR_OK != f_mount(&fs, "", 1)) {
-        while (!stdio_usb_connected()) { tight_loop_contents(); }
+        // while (!stdio_usb_connected()) { tight_loop_contents(); }
         printf("SD Card not inserted or SD Card error!");
         reset_usb_boot(0, 0);
     }
 
     FIL file;
     if (FR_OK != f_open(&file, "\\XT\\fdd.img", FA_READ | FA_WRITE)) {
-        while (!stdio_usb_connected()) { tight_loop_contents(); }
+        // while (!stdio_usb_connected()) { tight_loop_contents(); }
         printf("Floppy image not found!");
         reset_usb_boot(0, 0);
     }
@@ -327,16 +326,16 @@ bool handleScancode(const uint32_t ps2scancode) {
 
                 size_t br;
                 switch (channel->data_source_type) {
-                    case 0x00: memcpy(&RAM[dest_addr], channel->data_source + channel->data_offset, size);
+                    case DMA_SOURCE_MEM_READ: memcpy(&RAM[dest_addr], channel->data_source + channel->data_offset, size);
                         break;
-                    case 0x10: memcpy((void *) (channel->data_source + channel->data_offset), &RAM[dest_addr], size);
+                    case DMA_SOURCE_MEM_WRITE: memcpy((void *) (channel->data_source + channel->data_offset), &RAM[dest_addr], size);
                         break;
-                    case 0x01:
+                    case DMA_SOURCE_FILE_READ:
                         f_lseek(&file, channel->data_offset);
                         f_read(&file, &RAM[dest_addr], size, &br);
                         // printf("Read %x size %x offset %x \n", br, size, channel->data_offset);
                         break;
-                    case 0x11:
+                    case DMA_SOURCE_FILE_WRITE:
                         f_lseek(&file, channel->data_offset);
                         f_write(&file, &RAM[dest_addr], size, &br);
                         break;
