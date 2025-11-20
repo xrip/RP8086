@@ -212,7 +212,7 @@ __force_inline static void uart_write(const uint32_t port, const uint8_t data) {
             const bool rts_rising = (!(old_mcr & 0x02)) && (data & 0x02);
             const bool dtr_rising = (!(old_mcr & 0x01)) && (data & 0x01);
 
-            if ((rts_rising || dtr_rising) && is_usb_mouse_connected()) {
+            if (is_usb_mouse_connected() && (rts_rising || dtr_rising)) {
                 // Отправляем идентификатор Microsoft Serial Mouse (2-button)
                 // "M" = ASCII 0x4D
                 uart_write_byte('M');
