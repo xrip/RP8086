@@ -63,7 +63,7 @@ cmake --build .
   - 3.3V LDO regulator (supports up to 500mA)
   - BOOTSEL button for firmware flashing
   - Onboard LED (GPIO 25 or board-specific)
-- **Intel 8086 CPU** (or compatible: 8088, NEC V20/V30)
+- **Intel 8086 CPU** (or 8086 compatible: NEC V40)
 - **External components**: VGA R-2R DAC, level shifters (optional), SD card module
 
 **Build Configuration:**
