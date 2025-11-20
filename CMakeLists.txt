@@ -8,7 +8,10 @@ set(OUTPUT_DIR "${CMAKE_SOURCE_DIR}/bin/")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${OUTPUT_DIR}")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${OUTPUT_DIR}")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${OUTPUT_DIR}")
+
 set(PICO_FLASH_SIZE_BYTES 16777216)
+set(PICO_PLATFORM rp2350-arm-s)
+set(PICO_BOARD WEACT_STUDIO_RP2350B_CORE)
 
 include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
 
@@ -62,7 +65,7 @@ pico_generate_pio_header(${PROJECT_NAME}
         OUTPUT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/
 )
 
-if (USE_USB_CDC)
+if (DEBUG)
     target_compile_definitions(${PROJECT_NAME} PRIVATE DEBUG=1)
     pico_enable_stdio_uart(${PROJECT_NAME} 0)
     pico_enable_stdio_usb(${PROJECT_NAME} 1)
@@ -137,5 +140,6 @@ target_link_options(${PROJECT_NAME} PRIVATE
         --print-memory-usage
         --data-sections
         --function-sections
+        -fanalyzer
         -Wl,--wrap=atexit,--wrap=abort,--strip-all,--gc-sections # size optimizations
 )
