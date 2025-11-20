@@ -16,6 +16,7 @@
 #include "hardware/i8259.h"
 #include "hardware/i8253.h"
 #include "hardware/uart16550.h"
+#include "pico/stdio_usb.h"
 
 #ifndef DEBUG
 #include "hid_app.h"
@@ -23,6 +24,8 @@
 #else
 #include "pico/stdio.h"
 #endif
+#include "ff.h"
+#include "f_util.h"
 
 extern cga_s cga;
 extern mc6845_s mc6845;
@@ -32,7 +35,7 @@ repeating_timer_t irq0_timer;
 bool ctty_mode = false; // false = keyboard mode, true = CTTY mode
 uint8_t current_scancode = 0; // 0 = нет данных
 pwm_config pwm;
-
+FATFS fs;
 // ============================================================================
 // ASCII to Scancode (IBM PC/XT Set 1) - Simplified
 // ============================================================================
@@ -251,7 +254,6 @@ bool handleScancode(const uint32_t ps2scancode) {
     return true;
 }
 
-
 [[noreturn]] int main() {
     // IMPORTANT! Dont remove, hack to create .flashdata section for linker
     extern uint32_t PICO_CLOCK_SPEED_MHZ;
@@ -272,8 +274,15 @@ bool handleScancode(const uint32_t ps2scancode) {
 
 #else
     stdio_init_all();
-    // while (!stdio_usb_connected()) { tight_loop_contents(); }
+
 #endif
+    // Mount SD card filesystem
+    if (FR_OK != f_mount(&fs, "", 1)) {
+        while (!stdio_usb_connected()) { tight_loop_contents(); }
+        printf("SD Card not inserted or SD Card error!");
+        reset_usb_boot(0, 0);
+    }
+
 
     pwm = pwm_get_default_config();
     gpio_set_function(BEEPER_PIN, GPIO_FUNC_PWM);

@@ -35,6 +35,8 @@ add_executable(${PROJECT_NAME}
 
 add_subdirectory(drivers/graphics)
 add_subdirectory(drivers/vga-nextgen)
+add_subdirectory(drivers/sdcard)
+add_subdirectory(drivers/fatfs)
 target_link_libraries(${PROJECT_NAME} PRIVATE vga-nextgen)
 message(STATUS "VGA display enabled")
 
@@ -42,6 +44,12 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
 
         VGA
         VGA_BASE_PIN=30
+
+        SDCARD_PIN_SPI0_MISO=40
+        SDCARD_PIN_SPI0_CS=41
+        SDCARD_PIN_SPI0_SCK=42
+        SDCARD_PIN_SPI0_MOSI=43
+
         PICO_FLASH_SIZE_BYTES=16777216
         PICO_PRINTF_ALWAYS_INCLUDED=0
         PICO_PANIC_FUNCTION=0
@@ -76,6 +84,8 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
+        sdcard
+        fatfs
         graphics
 
         pico_runtime
