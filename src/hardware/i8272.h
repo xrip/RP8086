@@ -182,7 +182,7 @@ __force_inline static void i8272_writeport(const uint16_t port_number, const uin
                         // IRQ6 будет сгенерирован автоматически при завершении передачи
                         // const uint32_t size = endOfTrack * FDD_SECTOR_SIZE;
                         const uint32_t offset = ((cylinder * FDD_HEADS + head) * FDD_SECTORS_PER_TRACK + (sector - 1)) * FDD_SECTOR_SIZE;
-                        dma_start_transfer(2, &FLOPPY[offset], 6);
+                        dma_start_transfer(2, 0x01, &FLOPPY, offset, 6);
                     } else {
                         // При ошибке генерируем IRQ сразу
                         i8272_irq();
@@ -227,7 +227,7 @@ __force_inline static void i8272_writeport(const uint16_t port_number, const uin
 
                     auto cylinder = command[2];
                     [[maybe_unused]] auto headAgain = command[3];
-                    auto record = command[4];
+                    auto sector = command[4];
                     [[maybe_unused]] auto number = command[5];
                     //auto endOfTrack = command[6];
                     //auto gapLength = command[7];
@@ -255,14 +255,17 @@ __force_inline static void i8272_writeport(const uint16_t port_number, const uin
                     result[2] = response[2];
                     result[3] = cylinder;
                     result[4] = head;
-                    result[5] = record;
+                    result[5] = sector;
                     result[6] = number;
 
                     if (!failed) {
-                        // start DMA if we didn't immediately fail
-                        // FIXME START DMA
-                        //sys.getChipset().dmaRequest(2, true, this);
+                        // Запускаем асинхронную DMA передачу на канале 2
+                        // IRQ6 будет сгенерирован автоматически при завершении передачи
+                        // const uint32_t size = endOfTrack * FDD_SECTOR_SIZE;
+                        const uint32_t offset = ((cylinder * FDD_HEADS + head) * FDD_SECTORS_PER_TRACK + (sector - 1)) * FDD_SECTOR_SIZE;
+                        dma_start_transfer(2, 0x11, &FLOPPY, offset, 6);
                     } else {
+                        // При ошибке генерируем IRQ сразу
                         i8272_irq();
                     }
                 } else if (cmd == FDC_CMD_SPECIFY) // specify

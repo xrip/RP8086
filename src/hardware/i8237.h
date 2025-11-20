@@ -290,7 +290,7 @@ __force_inline static uint8_t i8237_read(const uint8_t channel, const uint8_t * 
 // ============================================================================
 // DMA Transfer (синхронная передача для корректности)
 // ============================================================================
-__force_inline static void dma_start_transfer(const uint8_t channel_index, const uint8_t *src, const uint8_t irq) {
+__force_inline static void dma_start_transfer(const uint8_t channel_index, const uint8_t data_source_type, const void *pointer, const uint32_t offset, const uint8_t irq) {
     // extern uint8_t RAM[];
     dma_channel_s *channel = &dma_channels[channel_index];
 
@@ -302,7 +302,9 @@ __force_inline static void dma_start_transfer(const uint8_t channel_index, const
     const uint32_t dest_addr = channel->page + channel->address;
     const size_t size = (uint32_t)channel->count + 1;
     channel->irq = irq;
-    channel->data_source = src;
+    channel->data_source = pointer;
+    channel->data_offset = offset;
+    channel->data_source_type = data_source_type;
     channel->dreq = 1;
 /*
     // Проверка границ RAM
@@ -319,7 +321,7 @@ __force_inline static void dma_start_transfer(const uint8_t channel_index, const
 
 #if 0
     // КРИТИЧНО: выполняем передачу СИНХРОННО (без race condition)
-    memcpy(&RAM[dest_addr], src, size);
+    memcpy(&RAM[dest_addr], pointer, size);
 
     // Обновляем счётчики
     update_count(channel, size);

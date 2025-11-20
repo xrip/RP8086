@@ -98,7 +98,6 @@ typedef struct {
 typedef struct {
     i8253_channel_s channels[3];
 } i8253_s;
-
 typedef struct {
     uint32_t page;
     uint32_t address;
@@ -115,7 +114,9 @@ typedef struct {
     uint8_t transfer_type;
 
     // Асинхронная передача данных (для polling на Core0)
-    const uint8_t *data_source;  // Источник данных (для device→memory)
+    uint8_t data_source_type;
+    const void *data_source;  // Источник данных (для device→memory)
+    uint32_t data_offset;  // Смещениен в источнике
     uint8_t irq;               // IRQ для генерации при завершении (0 = нет IRQ)
     bool transfer_active;             // Флаг активной передачи
 } dma_channel_s;

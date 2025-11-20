@@ -283,6 +283,12 @@ bool handleScancode(const uint32_t ps2scancode) {
         reset_usb_boot(0, 0);
     }
 
+    FIL file;
+    if (FR_OK != f_open(&file, "\\XT\\fdd.img", FA_READ | FA_WRITE)) {
+        while (!stdio_usb_connected()) { tight_loop_contents(); }
+        printf("Floppy image not found!");
+        reset_usb_boot(0, 0);
+    }
 
     pwm = pwm_get_default_config();
     gpio_set_function(BEEPER_PIN, GPIO_FUNC_PWM);
@@ -319,7 +325,22 @@ bool handleScancode(const uint32_t ps2scancode) {
                 const uint32_t dest_addr = channel->page + channel->address;
                 const size_t size = (uint32_t) channel->count + 1;
 
-                memcpy(&RAM[dest_addr], channel->data_source, size);
+                size_t br;
+                switch (channel->data_source_type) {
+                    case 0x00: memcpy(&RAM[dest_addr], channel->data_source + channel->data_offset, size);
+                        break;
+                    case 0x10: memcpy((void *) (channel->data_source + channel->data_offset), &RAM[dest_addr], size);
+                        break;
+                    case 0x01:
+                        f_lseek(&file, channel->data_offset);
+                        f_read(&file, &RAM[dest_addr], size, &br);
+                        // printf("Read %x size %x offset %x \n", br, size, channel->data_offset);
+                        break;
+                    case 0x11:
+                        f_lseek(&file, channel->data_offset);
+                        f_write(&file, &RAM[dest_addr], size, &br);
+                        break;
+                }
 
                 // Обновляем счётчики
                 update_count(channel, size);
