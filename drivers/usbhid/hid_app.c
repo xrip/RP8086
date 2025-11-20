@@ -163,7 +163,7 @@ bool is_usb_mouse_connected(void) {
     return usb_mouse_connected;
 }
 
-static void kbd_add_sequence(const uint8_t *sequence) {
+__force_inline static void kbd_add_sequence(const uint8_t *sequence) {
     if (!sequence)
         return;
     while(*sequence) {
@@ -216,11 +216,11 @@ static void process_kbd_report(hid_keyboard_report_t const* r1, hid_keyboard_rep
     }
 }
 
-static void find_pressed_keys(hid_keyboard_report_t const* report) {
+__force_inline static  void find_pressed_keys(hid_keyboard_report_t const* report) {
     process_kbd_report(report, &prev_report, &kbd_raw_key_down);
 }
 
-static void find_released_keys(hid_keyboard_report_t const* report) {
+__force_inline static void find_released_keys(hid_keyboard_report_t const* report) {
     process_kbd_report(&prev_report, report, &kbd_raw_key_up);
 }
 
