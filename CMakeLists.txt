@@ -16,7 +16,7 @@ set(PICO_BOARD WEACT_STUDIO_RP2350B_CORE)
 include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
 
 project(RP8086 C CXX ASM)
-
+SET(BUILD_NAME "${PROJECT_NAME}")
 pico_sdk_init()
 add_compile_options(
 #                -flto=auto
@@ -69,6 +69,7 @@ if (DEBUG)
     target_compile_definitions(${PROJECT_NAME} PRIVATE DEBUG=1)
     pico_enable_stdio_uart(${PROJECT_NAME} 0)
     pico_enable_stdio_usb(${PROJECT_NAME} 1)
+    set(BUILD_NAME "${BUILD_NAME}-DEBUG")
 else ()
     set(FAMILY rp2350)
     set(BOARD pico_sdk)
@@ -106,8 +107,8 @@ pico_add_extra_outputs(${PROJECT_NAME})
 # Post-build step: increment build number and copy firmware files with incremental suffix
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         COMMAND ${CMAKE_COMMAND}
+        -DPROJECT_NAME=${BUILD_NAME}
         -DOUTPUT_DIR=${OUTPUT_DIR}
-        -DPROJECT_NAME=${PROJECT_NAME}
         -DBUILD_NUMBER_FILE=${CMAKE_SOURCE_DIR}/.build_number
         -P ${CMAKE_SOURCE_DIR}/rename_with_build_number.cmake
         COMMENT "Appending incremental build number to firmware filenames"
@@ -135,6 +136,7 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
 pico_set_program_name(${PROJECT_NAME} "${PROJECT_NAME}")
 pico_set_program_version(${PROJECT_NAME} "${GIT_BRANCH} ${GIT_COMMIT_HASH}")
 pico_set_linker_script(${PROJECT_NAME} "${CMAKE_SOURCE_DIR}/memmap.ld")
+set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "${BUILD_NAME}")
 target_link_options(${PROJECT_NAME} PRIVATE
         -Xlinker
         --print-memory-usage
