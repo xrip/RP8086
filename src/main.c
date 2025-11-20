@@ -12,10 +12,6 @@
 #include "hardware/i8253.h"
 #include "hardware/uart16550.h"
 
-#ifndef DEBUG
-#include "hid_app.h"
-#include "tusb.h"
-#endif
 #include "ff.h"
 #include "f_util.h"
 #include <debug.h>
@@ -81,11 +77,9 @@ bool handleScancode(const uint8_t ps2scancode) {
     psram_init(47);
 
 
-#ifndef DEBUG
     tusb_init();
     keyboard_init();
     mouse_init();  // Инициализация поддержки Microsoft Serial Mouse
-#endif
     debug_init();
 
     // Mount SD card filesystem
@@ -169,9 +163,8 @@ bool handleScancode(const uint8_t ps2scancode) {
 
         // Проверка состояния видеоадаптера и обработка клавиатуры
         if (absolute_time_diff_us(next_frame, get_absolute_time()) >= 0) {
-#ifndef DEBUG
             keyboard_tick();
-#endif
+
             next_frame = delayed_by_us(next_frame, 16666);
             mc6845.cursor_blink_state = frame_counter++ >> 4 & 1;
 

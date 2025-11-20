@@ -198,7 +198,14 @@ __force_inline void debug_console(const int videomode) {
         }
     }
 }
+#define tusb_init(...)
+#define keyboard_init(...)
+#define mouse_init(...)
+#define keyboard_tick(...)
+
 #else
+#include "hid_app.h"
+#include "tusb.h"
 #define debug_init(...)
 #define debug_console(...)
 #endif
