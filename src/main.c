@@ -113,8 +113,6 @@ bool handleScancode(const uint8_t ps2scancode) {
     next_frame = delayed_by_us(next_frame, 16666);
 
 
-    bool video_enabled = true;
-
     graphics_init();
     graphics_set_buffer((uint8_t *) VIDEORAM, 320, 200);
     graphics_set_textbuffer((uint8_t *) VIDEORAM);
@@ -224,7 +222,7 @@ bool handleScancode(const uint8_t ps2scancode) {
                 cga.updated = false;
             }
 
-            debug_console(video_enabled, videomode);
+            debug_console(videomode);
         }
 
         //__wfi();

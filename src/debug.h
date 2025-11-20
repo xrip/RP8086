@@ -68,7 +68,8 @@ __force_inline void debug_init() {
     stdio_init_all();
 }
 
-__force_inline void debug_console(bool video_enabled, const int videomode) {
+__force_inline void debug_console(const int videomode) {
+    static bool video_enabled = true;
     static bool ctty_mode = false; // false = keyboard mode, true = CTTY mode
     if (video_enabled && videomode <= TEXTMODE_80x25_COLOR) {
         printf("\033[H"); // cursor home
