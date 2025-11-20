@@ -47,3 +47,4 @@ cga_s cga __attribute__((aligned(4)));
 
 // IMPORTANT! Dont remove, hack to create .flashdata section for linker
 const uint64_t __in_flash("DUMMY") PICO_CLOCK_SPEED_MHZ = PICO_CLOCK_SPEED;
+

@@ -13,7 +13,7 @@ void keyboard_init(void);
 void keyboard_tick(void);
 
 // External handler for scancodes (implemented in main application)
-bool handleScancode(uint32_t ps2scancode);
+bool handleScancode(uint8_t ps2scancode);
 
 // === Мышь (Microsoft Serial Mouse protocol) ===
 void mouse_init(void);

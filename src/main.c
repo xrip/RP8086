@@ -2,16 +2,11 @@
 #include <hardware/pwm.h>
 #include <pico/bootrom.h>
 #include <pico/multicore.h>
-#include <hardware/structs/qmi.h>
-#include <hardware/structs/xip.h>
 
-
-// 8086 related libs
-#include "cpu.h"
-#include "cpu_bus.h"
 #include "common.h"
 #include "graphics.h"
 
+// 8086 related libs
 #include "hardware/i8237.h"
 #include "hardware/i8259.h"
 #include "hardware/i8253.h"
@@ -20,93 +15,20 @@
 #ifndef DEBUG
 #include "hid_app.h"
 #include "tusb.h"
-#else
-#include "pico/stdio.h"
 #endif
 #include "ff.h"
 #include "f_util.h"
-
+#include <debug.h>
 extern cga_s cga;
 extern mc6845_s mc6845;
 uint8_t videomode = 0;
 repeating_timer_t irq0_timer;
 
-bool ctty_mode = false; // false = keyboard mode, true = CTTY mode
 uint8_t current_scancode = 0; // 0 = нет данных
 pwm_config pwm;
 FATFS fs;
-// ============================================================================
-// ASCII to Scancode (IBM PC/XT Set 1) - Simplified
-// ============================================================================
-__force_inline uint8_t ascii_to_scancode(const int ascii) {
-    const uint8_t qwerty_map[] = {
-        0x1E, 0x30, 0x2E, 0x20, 0x12, 0x21, 0x22, 0x23, // a-h
-        0x17, 0x24, 0x25, 0x26, 0x32, 0x31, 0x18, 0x19, // i-p
-        0x10, 0x13, 0x1F, 0x14, 0x16, 0x2F, 0x11, 0x2D, // q-x
-        0x15, 0x2C // y-z
-    };
-    // Letters
-    if (ascii >= 'a' && ascii <= 'z') {
-        return qwerty_map[ascii - 'a'];
-    }
-    if (ascii >= 'A' && ascii <= 'Z') {
-        return qwerty_map[ascii - 'A'];
-    }
-    // Digits
-    if (ascii >= '0' && ascii <= '9') {
-        static const uint8_t digit_map[] = {
-            0x0B, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A
-        };
-        return digit_map[ascii - '0'];
-    }
-    // Special keys
-    switch (ascii) {
-        case '!': return 0x41; // "
-        case '@': return 0x3f; // "
-        case '#': return 0x3c; // "
-        case '$': return 0x3b; // "
-        case '%': return 0x3c; // "
-        case '^': return 0x58; // "
-        case '&': return 0x64; // "
-        case '(': return 0x42; // "
-        case ')': return 0x4; // "
-        case '"': return 0x68; // "
 
-        case ' ': return 0x39; // Space
-        case '\r':
-        case '\n': return 0x1C; // Enter
-        case '\b': return 0x0E; // Backspace
-        case '\t': return 0x0F; // Tab
-        case 27: return 0x01; // Escape
-
-        // Symbols without Shift
-        case '-': return 0x0C; // Minus
-        case '=': return 0x0D; // Equals
-        case '[': return 0x1A; // Left bracket
-        case ']': return 0x1B; // Right bracket
-        case ';': return 0x27; // Semicolon
-        case '\'': return 0x28; // Single quote
-        case '`': return 0x29; // Backtick
-        case '\\': return 0x2B; // Backslash
-        case ',': return 0x33; // Comma
-        case '.': return 0x34; // Period
-        case '/': return 0x35; // Slash
-        case '*': return 0x37;
-        default: return 0x00; // Unknown
-    }
-}
-
-// ============================================================================
-// Set scancode and trigger IRQ1 (keyboard interrupt)
-// ============================================================================
-__force_inline static void push_scancode(const uint8_t scancode) {
-    if (scancode == 0x00) return; // Ignore unknown keys
-
-    current_scancode = scancode;
-    i8259_interrupt(1); // IRQ1 - Keyboard interrupt через i8259
-}
-
-static void pic_init(void) {
+static inline void pic_init(void) {
     // Настройка INTR как выход
     gpio_init(INTR_PIN);
     gpio_set_dir(INTR_PIN, GPIO_OUT);
@@ -132,122 +54,13 @@ static void pic_init(void) {
     }
 }
 
-void psram_init(const int cs_pin) {
-    gpio_set_function(cs_pin, GPIO_FUNC_XIP_CS1);
 
-    // Enable direct mode, PSRAM CS, clkdiv of 10
-    qmi_hw->direct_csr = 10 << QMI_DIRECT_CSR_CLKDIV_LSB |
-                         QMI_DIRECT_CSR_EN_BITS |
-                         QMI_DIRECT_CSR_AUTO_CS1N_BITS;
+// ============================================================================
+// Set scancode and trigger IRQ1 (keyboard interrupt)
+// ============================================================================
+bool handleScancode(const uint8_t ps2scancode) {
+    if (ps2scancode == 0x00) return false; // Ignore unknown keys
 
-    while (qmi_hw->direct_csr & QMI_DIRECT_CSR_BUSY_BITS) {
-        tight_loop_contents();
-    }
-
-    // Enable QPI mode on the PSRAM
-    constexpr uint CMD_QPI_EN = 0x35;
-    qmi_hw->direct_tx = QMI_DIRECT_TX_NOPUSH_BITS | CMD_QPI_EN;
-
-    while (qmi_hw->direct_csr & QMI_DIRECT_CSR_BUSY_BITS) {
-        tight_loop_contents();
-    }
-
-    // Set PSRAM timing
-    constexpr int max_psram_freq = PSRAM_FREQ_MHZ;
-    const int clock_hz = clock_get_hz(clk_sys);
-    int divisor = (clock_hz + max_psram_freq - 1) / max_psram_freq;
-
-    if (divisor == 1 && clock_hz > 100000000) {
-        divisor = 2;
-    }
-
-    int rxdelay = divisor;
-    if (clock_hz / divisor > 100000000) {
-        rxdelay += 1;
-    }
-
-    // Calculate timing parameters
-    const int clock_period_fs = 1000000000000000ll / clock_hz;
-    const int max_select = (125 * 1000000) / clock_period_fs; // 125 = 8000ns / 64
-    const int min_deselect = (18 * 1000000 + (clock_period_fs - 1)) / clock_period_fs - (divisor + 1) / 2;
-
-    qmi_hw->m[1].timing = 1 << QMI_M1_TIMING_COOLDOWN_LSB |
-                          QMI_M1_TIMING_PAGEBREAK_VALUE_1024 << QMI_M1_TIMING_PAGEBREAK_LSB |
-                          max_select << QMI_M1_TIMING_MAX_SELECT_LSB |
-                          min_deselect << QMI_M1_TIMING_MIN_DESELECT_LSB |
-                          rxdelay << QMI_M1_TIMING_RXDELAY_LSB |
-                          divisor << QMI_M1_TIMING_CLKDIV_LSB;
-
-    // Set PSRAM read format
-    qmi_hw->m[1].rfmt = QMI_M0_RFMT_PREFIX_WIDTH_VALUE_Q << QMI_M0_RFMT_PREFIX_WIDTH_LSB |
-                        QMI_M0_RFMT_ADDR_WIDTH_VALUE_Q << QMI_M0_RFMT_ADDR_WIDTH_LSB |
-                        QMI_M0_RFMT_SUFFIX_WIDTH_VALUE_Q << QMI_M0_RFMT_SUFFIX_WIDTH_LSB |
-                        QMI_M0_RFMT_DUMMY_WIDTH_VALUE_Q << QMI_M0_RFMT_DUMMY_WIDTH_LSB |
-                        QMI_M0_RFMT_DATA_WIDTH_VALUE_Q << QMI_M0_RFMT_DATA_WIDTH_LSB |
-                        QMI_M0_RFMT_PREFIX_LEN_VALUE_8 << QMI_M0_RFMT_PREFIX_LEN_LSB |
-                        6 << QMI_M0_RFMT_DUMMY_LEN_LSB;
-
-    qmi_hw->m[1].rcmd = 0xEB;
-
-    // Set PSRAM write format
-    qmi_hw->m[1].wfmt = QMI_M0_WFMT_PREFIX_WIDTH_VALUE_Q << QMI_M0_WFMT_PREFIX_WIDTH_LSB |
-                        QMI_M0_WFMT_ADDR_WIDTH_VALUE_Q << QMI_M0_WFMT_ADDR_WIDTH_LSB |
-                        QMI_M0_WFMT_SUFFIX_WIDTH_VALUE_Q << QMI_M0_WFMT_SUFFIX_WIDTH_LSB |
-                        QMI_M0_WFMT_DUMMY_WIDTH_VALUE_Q << QMI_M0_WFMT_DUMMY_WIDTH_LSB |
-                        QMI_M0_WFMT_DATA_WIDTH_VALUE_Q << QMI_M0_WFMT_DATA_WIDTH_LSB |
-                        QMI_M0_WFMT_PREFIX_LEN_VALUE_8 << QMI_M0_WFMT_PREFIX_LEN_LSB;
-
-    qmi_hw->m[1].wcmd = 0x38;
-
-    // Disable direct mode
-    qmi_hw->direct_csr = 0;
-
-    // Enable writes to PSRAM
-    hw_set_bits(&xip_ctrl_hw->ctrl, XIP_CTRL_WRITABLE_M1_BITS);
-    // detect a chip size
-}
-
-// Corrected CGA palette from https://int10h.org/blog/2022/06/ibm-5153-color-true-cga-palette/
-constexpr uint32_t cga_palette[16] = {
-    //R, G, B
-    0x000000, // 0 black
-    0x0000C4, // 1 blue
-    0x00C400, // 2 green
-    0x00C4C4, // 3 cyan
-    0xC40000, // 4 red
-    0xC400C4, // 5 magenta
-    0xC47E00, // 6 brown
-    0xC4C4C4, // 7 light gray
-    0x4E4E4E, // 8 dark gray
-    0x4E4EDC, // 9 light blue
-    0x4EDC4E, // 10 light green
-    0x4EF3F3, // 11 light cyan
-    0xDC4E4E, // 12 light red
-    0xF34EF3, // 13 light magenta
-    0xF3F34E, // 14 yellow
-    0xFFFFFF, // 15 white
-};
-
-// Pallete, intensity, color_index from cga_palette
-constexpr uint8_t cga_gfxpal[3][2][4] = {
-    //palettes for 320x200 graphics mode
-    {
-        {0, 2, 4, 6}, //normal palettes
-        {0, 10, 12, 14}, //intense palettes
-    },
-    {
-        {0, 3, 5, 7},
-        {0, 11, 13, 15},
-    },
-    {
-        // the unofficial Mode 5 palette, accessed by disabling ColorBurst
-        {0, 3, 4, 7},
-        {0, 11, 12, 15},
-    },
-};
-
-
-bool handleScancode(const uint32_t ps2scancode) {
     current_scancode = ps2scancode;
     i8259_interrupt(1); // IRQ1 - Keyboard interrupt через i8259
     return true;
@@ -260,21 +73,21 @@ bool handleScancode(const uint32_t ps2scancode) {
     vreg_disable_voltage_limit();
     vreg_set_voltage(VREG_VOLTAGE_1_60);
     busy_wait_at_least_cycles((SYS_CLK_VREG_VOLTAGE_AUTO_ADJUST_DELAY_US * (uint64_t) XOSC_HZ) / 1000000);
-    qmi_hw->m[0].timing = 0x60007305; // 4x FLASH divisor
+
+    qmi_hw->m[0].timing = 0x60007305; // 5x FLASH divisor
+
     set_sys_clock_hz(PICO_CLOCK_SPEED_MHZ, true);
+
     psram_init(47);
-    // busy_wait_ms(250); // Даем время стабилизироваться напряжению
 
 
 #ifndef DEBUG
     tusb_init();
     keyboard_init();
     mouse_init();  // Инициализация поддержки Microsoft Serial Mouse
-
-#else
-    stdio_init_all();
-
 #endif
+    debug_init();
+
     // Mount SD card filesystem
     if (FR_OK != f_mount(&fs, "", 1)) {
         // while (!stdio_usb_connected()) { tight_loop_contents(); }
@@ -318,6 +131,7 @@ bool handleScancode(const uint32_t ps2scancode) {
     uint32_t frame_counter = 0;
     uint8_t old_videomode = 0;
     while (true) {
+        // Обработка DMA
         for (dma_channel_s *channel = dma_channels; channel < dma_channels + DMA_CHANNELS; channel++) {
             if (channel->dreq && !channel->masked) {
                 // Вычисляем физический адрес назначения
@@ -355,14 +169,13 @@ bool handleScancode(const uint32_t ps2scancode) {
             }
         }
 
-        // Отрисовка MDA фреймбуфера
+        // Проверка состояния видеоадаптера и обработка клавиатуры
         if (absolute_time_diff_us(next_frame, get_absolute_time()) >= 0) {
 #ifndef DEBUG
             keyboard_tick();
 #endif
             next_frame = delayed_by_us(next_frame, 16666);
             mc6845.cursor_blink_state = frame_counter++ >> 4 & 1;
-
 
             if (cga.updated) {
                 if (unlikely(cga.port3D8 & 0b10)) {
@@ -410,139 +223,10 @@ bool handleScancode(const uint32_t ps2scancode) {
 
                 cga.updated = false;
             }
-#if DEBUG
-            if (video_enabled && videomode <= TEXTMODE_80x25_COLOR) {
-                printf("\033[H"); // cursor home
-                printf("\033[2J"); // clear screen
-                printf("\033[3J"); // clear scrollback
-                printf("\033[40m"); // black background
-                printf("\033[?25l"); // hide cursor (reduce flicker)
-                for (int y = 0; y < 25; y++) {
-                    const uint32_t *framebuffer_line = (uint32_t *) VIDEORAM + __fast_mul(y, 40);
-                    for (int x = 40; x--;) {
-                        const uint32_t dword = *framebuffer_line++ & 0x00FF00FF;
-                        putchar_raw(dword);
-                        putchar_raw(dword >> 16);
-                    }
-                    if (y != 24) {
-                        putchar_raw(0x0D);
-                        putchar_raw(0x0A);
-                    }
-                }
-            }
-#endif
+
+            debug_console(video_enabled, videomode);
         }
-#if DEBUG
-        // DMA polling и передача данных (асинхронная эмуляция Intel 8237)
 
-        int c = getchar_timeout_us(0);
-
-        // Special debug commands (uppercase variants)
-        if (c == '`') {
-            video_enabled = !video_enabled;
-        } else if (c == 'C') {
-            // Переключение между keyboard и CTTY режимами
-            ctty_mode = !ctty_mode;
-            printf("\033[2J\033[H");
-            if (ctty_mode) {
-                video_enabled = false;
-                printf("*** CTTY Mode Enabled ***\n");
-                printf("Press 'C' again to return to keyboard mode.\n\n");
-            } else {
-                video_enabled = true;
-            }
-        } else if (c == 'R') {
-            printf("\033[2JReseting cpu\n");
-            gpio_put(INTR_PIN, 0); // По умолчанию LOW
-            reset_cpu();
-            // watchdog_enable(0, 0);
-        } else if (c == 'B') {
-            reset_usb_boot(0, 0);
-        } else if (c == 'M') {
-            printf("\nEnter base address (hex): ");
-            uint32_t base = 0;
-            while (1) {
-                int k = getchar_timeout_us(0);
-                if (k == PICO_ERROR_TIMEOUT) continue;
-
-                if (k == '\r' || k == '\n') break;
-
-                if ((k >= '0' && k <= '9') || (k >= 'a' && k <= 'f') || (k >= 'A' && k <= 'F')) {
-                    k = (k >= 'a') ? k - 'a' + 10 : (k >= 'A') ? k - 'A' + 10 : k - '0';
-                    base = (base << 4) | k;
-                    printf("%X", k);
-                }
-            }
-            printf("\nMemory dump from %04X:\n", base);
-
-            for (int i = 0; i < 0x200 && i + base < RAM_SIZE; i += 16) {
-                printf("%04X: ", base + i);
-                for (int j = 0; j < 16; j++) {
-                    uint8_t value = RAM[base + i + j];
-                    printf("%02X ", value);
-                }
-                printf(" | ");
-                for (int j = 0; j < 16; j++) {
-                    uint8_t value = RAM[base + i + j];
-                    printf("%c", (value >= 32 && value < 127) ? value : '.');
-                }
-                printf("\n");
-
-                // Check for abort keys
-                int k = getchar_timeout_us(0);
-                if (k != PICO_ERROR_TIMEOUT && (k == 'M' || k == 'R' || k == 'B' || k == 'V'))
-                    break;
-            }
-        } else if (c == 'V') {
-            printf("\nEnter base address (hex): ");
-            uint32_t base = 0;
-            while (1) {
-                int k = getchar_timeout_us(0);
-                if (k == PICO_ERROR_TIMEOUT) continue;
-
-                if (k == '\r' || k == '\n') break;
-
-                if ((k >= '0' && k <= '9') || (k >= 'a' && k <= 'f') || (k >= 'A' && k <= 'F')) {
-                    k = (k >= 'a') ? k - 'a' + 10 : (k >= 'A') ? k - 'A' + 10 : k - '0';
-                    base = (base << 4) | k;
-                    printf("%X", k);
-                }
-            }
-            printf("\nVideo dump from %04X:\n", base);
-
-            for (int i = 0; i < 0x200 && i + base < RAM_SIZE; i += 16) {
-                printf("%04X: ", base + i);
-                for (int j = 0; j < 16; j++) {
-                    uint8_t value = VIDEORAM[base + i + j];
-                    printf("%02X ", value);
-                }
-                printf(" | ");
-                for (int j = 0; j < 16; j++) {
-                    uint8_t value = VIDEORAM[base + i + j];
-                    printf("%c", (value >= 32 && value < 127) ? value : '.');
-                }
-                printf("\n");
-
-                // Check for abort keys
-                int k = getchar_timeout_us(0);
-                if (k != PICO_ERROR_TIMEOUT && (k == 'M' || k == 'R' || k == 'B' || k == 'V'))
-                    break;
-            }
-        } else if (c != PICO_ERROR_TIMEOUT) {
-            // ═══════════════════════════════════════════════════════
-            // Обработка обычных символов в зависимости от режима
-            // ═══════════════════════════════════════════════════════
-            if (ctty_mode) {
-                // CTTY Mode: USB → UART RBR → DOS
-                uart.rbr = (uint8_t) c;
-                uart.data_ready = true;
-            } else {
-                // Keyboard Mode: USB → Scancode → i8086
-                const uint8_t scancode = ascii_to_scancode(c);
-                push_scancode(scancode);
-            }
-        }
-#endif
         //__wfi();
         tight_loop_contents();
     }

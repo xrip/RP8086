@@ -1,4 +1,3 @@
-#include "cpu.h"
 #include "common.h"
 
 #include <hardware/pwm.h>
