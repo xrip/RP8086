@@ -55,6 +55,8 @@ static inline void pic_init(void) {
 // Set scancode and trigger IRQ1 (keyboard interrupt)
 // ============================================================================
 bool handleScancode(const uint8_t ps2scancode) {
+    if (ps2scancode == 0x00) return false; // Ignore unknown keys
+
     current_scancode = ps2scancode;
     i8259_interrupt(1); // IRQ1 - Keyboard interrupt через i8259
     return true;
