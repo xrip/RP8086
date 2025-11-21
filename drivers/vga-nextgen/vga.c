@@ -5,11 +5,9 @@
 #include "hardware/irq.h"
 #include "hardware/pio.h"
 #include <string.h>
-#include <stdio.h>
 #include <arm_acle.h>
 #include <common.h>
 
-#include <stdlib.h>
 uint16_t pio_program_VGA_instructions[] = {
     //     .wrap_target
     0x6008, //  0: out    pins, 8
@@ -75,7 +73,6 @@ static constexpr uint16_t __aligned(4) txt_palette[16] = {
 //буфер 2К текстовой палитры для быстрой работы
 //static uint16_t *txt_palette_fast = NULL;
 static uint16_t __aligned(4) txt_palette_fast[256 * 4];
-static int txt_palette_init = 0;
 
 enum graphics_mode_t graphics_mode;
 
@@ -367,89 +364,6 @@ void __time_critical_func() dma_handler_VGA() {
     port3DA |= 1; // no more data shown
 }
 
-void graphics_set_mode(const enum graphics_mode_t mode) {
-    if (_SM_VGA < 0) return; // если  VGA не инициализирована -
-
-    graphics_mode = mode;
-
-    // Если мы уже проиницилизированы - выходим
-    if (txt_palette_init) {
-        return;
-    };
-    uint8_t TMPL_VHS8 = 0;
-    uint8_t TMPL_VS8 = 0;
-    uint8_t TMPL_HS8 = 0;
-    uint8_t TMPL_LINE8 = 0;
-
-    double fdiv = 100;
-    int HS_SIZE = 4;
-    int HS_SHIFT = 100;
-
-    //txt_palette_fast = (uint16_t *) calloc(256 * 4, sizeof(uint16_t));
-    for (int i = 0; i < 256; i++) {
-        const uint8_t c1 = txt_palette[i & 0xf];
-        const uint8_t c0 = txt_palette[i >> 4];
-
-        txt_palette_fast[i * 4 + 0] = c0 | c0 << 8;
-        txt_palette_fast[i * 4 + 1] = c1 | c0 << 8;
-        txt_palette_fast[i * 4 + 2] = c0 | c1 << 8;
-        txt_palette_fast[i * 4 + 3] = c1 | c1 << 8;
-    }
-    txt_palette_init = true;
-
-    TMPL_LINE8 = 0b11000000;
-    HS_SHIFT = 328 * 2;
-    HS_SIZE = 48 * 2;
-
-    const int line_size = 400 * 2;
-
-    shift_picture = line_size - HS_SHIFT;
-
-    palette16_mask = 0xc0c0;
-
-    visible_line_size = 320;
-
-    N_lines_total = 525;
-    N_lines_visible = 480;
-    line_VS_begin = 490;
-    line_VS_end = 491;
-
-    fdiv = clock_get_hz(clk_sys) / 25175000.0; //частота пиксельклока
-
-    //инициализация шаблонов строк и синхросигнала
-    const uint32_t div32 = (uint32_t) (fdiv * (1 << 16) + 0.0);
-    PIO_VGA->sm[_SM_VGA].clkdiv = div32 & 0xfffff000; //делитель для конкретной sm
-    dma_channel_set_trans_count(dma_channel_data, line_size / 4, false);
-
-    for (int i = 0; i < 4; i++) {
-        lines_pattern[i] = &lines_pattern_data[i * (line_size / 4)];
-    }
-    // memset(lines_pattern_data,N_TMPLS*1200,0);
-    TMPL_VHS8 = TMPL_LINE8 ^ 0b11000000;
-    TMPL_VS8 = TMPL_LINE8 ^ 0b10000000;
-    TMPL_HS8 = TMPL_LINE8 ^ 0b01000000;
-
-    auto base_ptr = (uint8_t *) lines_pattern[0];
-    //пустая строка
-    memset(base_ptr, TMPL_LINE8, line_size);
-    //memset(base_ptr+HS_SHIFT,TMPL_HS8,HS_SIZE);
-    //выровненная синхра вначале
-    memset(base_ptr, TMPL_HS8, HS_SIZE);
-
-    // кадровая синхра
-    base_ptr = (uint8_t *) lines_pattern[1];
-    memset(base_ptr, TMPL_VS8, line_size);
-    //memset(base_ptr+HS_SHIFT,TMPL_VHS8,HS_SIZE);
-    //выровненная синхра вначале
-    memset(base_ptr, TMPL_VHS8, HS_SIZE);
-
-    //заготовки для строк с изображением
-    base_ptr = (uint8_t *) lines_pattern[2];
-    memcpy(base_ptr, lines_pattern[0], line_size);
-    base_ptr = (uint8_t *) lines_pattern[3];
-    memcpy(base_ptr, lines_pattern[0], line_size);
-}
-
 void graphics_set_buffer(uint8_t *buffer, const uint16_t width, const uint16_t height) {
     graphics_framebuffer = buffer;
 }
@@ -544,4 +458,82 @@ void graphics_init() {
 
     irq_set_enabled(VGA_DMA_IRQ, true);
     dma_start_channel_mask(1u << dma_channel_data);
+
+
+    uint8_t TMPL_VHS8 = 0;
+    uint8_t TMPL_VS8 = 0;
+    uint8_t TMPL_HS8 = 0;
+    uint8_t TMPL_LINE8 = 0;
+
+    double fdiv = 100;
+    int HS_SIZE = 4;
+    int HS_SHIFT = 100;
+
+    //txt_palette_fast = (uint16_t *) calloc(256 * 4, sizeof(uint16_t));
+    for (int i = 0; i < 256; i++) {
+        const uint8_t c1 = txt_palette[i & 0xf];
+        const uint8_t c0 = txt_palette[i >> 4];
+
+        txt_palette_fast[i * 4 + 0] = c0 | c0 << 8;
+        txt_palette_fast[i * 4 + 1] = c1 | c0 << 8;
+        txt_palette_fast[i * 4 + 2] = c0 | c1 << 8;
+        txt_palette_fast[i * 4 + 3] = c1 | c1 << 8;
+    }
+
+    TMPL_LINE8 = 0b11000000;
+    HS_SHIFT = 328 * 2;
+    HS_SIZE = 48 * 2;
+
+    const int line_size = 400 * 2;
+
+    shift_picture = line_size - HS_SHIFT;
+
+    palette16_mask = 0xc0c0;
+
+    visible_line_size = 320;
+
+    N_lines_total = 525;
+    N_lines_visible = 480;
+    line_VS_begin = 490;
+    line_VS_end = 491;
+
+    fdiv = clock_get_hz(clk_sys) / 25175000.0; //частота пиксельклока
+
+    //инициализация шаблонов строк и синхросигнала
+    const uint32_t div32 = (uint32_t) (fdiv * (1 << 16) + 0.0);
+    PIO_VGA->sm[_SM_VGA].clkdiv = div32 & 0xfffff000; //делитель для конкретной sm
+    dma_channel_set_trans_count(dma_channel_data, line_size / 4, false);
+
+    for (int i = 0; i < 4; i++) {
+        lines_pattern[i] = &lines_pattern_data[i * (line_size / 4)];
+    }
+    // memset(lines_pattern_data,N_TMPLS*1200,0);
+    TMPL_VHS8 = TMPL_LINE8 ^ 0b11000000;
+    TMPL_VS8 = TMPL_LINE8 ^ 0b10000000;
+    TMPL_HS8 = TMPL_LINE8 ^ 0b01000000;
+
+    auto base_ptr = (uint8_t *) lines_pattern[0];
+    //пустая строка
+    memset(base_ptr, TMPL_LINE8, line_size);
+    //memset(base_ptr+HS_SHIFT,TMPL_HS8,HS_SIZE);
+    //выровненная синхра вначале
+    memset(base_ptr, TMPL_HS8, HS_SIZE);
+
+    // кадровая синхра
+    base_ptr = (uint8_t *) lines_pattern[1];
+    memset(base_ptr, TMPL_VS8, line_size);
+    //memset(base_ptr+HS_SHIFT,TMPL_VHS8,HS_SIZE);
+    //выровненная синхра вначале
+    memset(base_ptr, TMPL_VHS8, HS_SIZE);
+
+    //заготовки для строк с изображением
+    base_ptr = (uint8_t *) lines_pattern[2];
+    memcpy(base_ptr, lines_pattern[0], line_size);
+    base_ptr = (uint8_t *) lines_pattern[3];
+    memcpy(base_ptr, lines_pattern[0], line_size);
+}
+
+
+void graphics_set_mode(const enum graphics_mode_t mode) {
+    graphics_mode = mode;
 }
