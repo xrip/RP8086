@@ -199,22 +199,23 @@ typedef struct {
 // Corrected CGA palette from https://int10h.org/blog/2022/06/ibm-5153-color-true-cga-palette/
 constexpr uint32_t cga_palette[16] = {
     //R, G, B
-    0x000000, // 0 black
-    0x0000C4, // 1 blue
-    0x00C400, // 2 green
-    0x00C4C4, // 3 cyan
-    0xC40000, // 4 red
-    0xC400C4, // 5 magenta
-    0xC47E00, // 6 brown
-    0xC4C4C4, // 7 light gray
-    0x4E4E4E, // 8 dark gray
-    0x4E4EDC, // 9 light blue
-    0x4EDC4E, // 10 light green
-    0x4EF3F3, // 11 light cyan
-    0xDC4E4E, // 12 light red
-    0xF34EF3, // 13 light magenta
-    0xF3F34E, // 14 yellow
-    0xFFFFFF, // 15 white
+    0x000000, // 0: black
+    0x0000AA, // 1: blue
+    0x00AA00, // 2: green
+    0x00AAAA, // 3: cyan
+    0xAA0000, // 4: red
+    0xAA00AA, // 5: magenta
+    0xAAAA00, // 6: brown
+    0xAAAAAA, // 7: light gray
+
+    0x555555, // 8: dark gray
+    0x0000FF, // 9: bright blue
+    0x00FF00, // 10: bright green
+    0x00FFFF, // 11: bright cyan
+    0xFF0000, // 12: bright red
+    0xFF00FF, // 13: bright magenta
+    0xFFFF00, // 14: bright yellow
+    0xFFFFFF  // 15: white
 };
 
 // Pallete, intensity, color_index from cga_palette

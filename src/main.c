@@ -109,12 +109,6 @@ bool handleScancode(const uint8_t ps2scancode) {
 
     graphics_init();
     graphics_set_buffer((uint8_t *) VIDEORAM, 320, 200);
-    graphics_set_textbuffer((uint8_t *) VIDEORAM);
-    graphics_set_bgcolor(0);
-    graphics_set_offset(0, 0);
-    graphics_set_flashmode(true, true);
-    graphics_set_mode(CGA_320x200x4);
-    busy_wait_us(33);
     graphics_set_mode(TEXTMODE_80x25_BW);
     for (int i = 0; i < 16; i++) {
         graphics_set_palette(i, cga_palette[i]);
