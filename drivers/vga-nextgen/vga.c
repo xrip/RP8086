@@ -1,6 +1,4 @@
 #include "graphics.h"
-#include "hardware/clocks.h"
-#include "hardware/structs/pll.h"
 #include "hardware/dma.h"
 #include "hardware/irq.h"
 #include "hardware/pio.h"
@@ -43,13 +41,7 @@ static int dma_channel_data;
 
 static uint8_t *graphics_framebuffer;
 
-
-//буфер 1к графической палитры
 static uint16_t __aligned(4) palette[256];
-//static uint16_t palette[2][256];
-
-static uint32_t bg_color[2];
-static uint16_t palette16_mask = 0;
 
 static constexpr uint16_t __aligned(4) txt_palette[16] = {
     0b000000 & 0x3f | 0xc0,
@@ -465,7 +457,6 @@ void graphics_init() {
     uint8_t TMPL_HS8 = 0;
     uint8_t TMPL_LINE8 = 0;
 
-    double fdiv = 100;
     int HS_SIZE = 4;
     int HS_SHIFT = 100;
 
@@ -484,23 +475,12 @@ void graphics_init() {
     HS_SHIFT = 328 * 2;
     HS_SIZE = 48 * 2;
 
-    const int line_size = 400 * 2;
+    constexpr int line_size = 400 * 2;
 
     shift_picture = line_size - HS_SHIFT;
 
-    palette16_mask = 0xc0c0;
-
-    visible_line_size = 320;
-
-    N_lines_total = 525;
-    N_lines_visible = 480;
-    line_VS_begin = 490;
-    line_VS_end = 491;
-
-    fdiv = clock_get_hz(clk_sys) / 25175000.0; //частота пиксельклока
-
     //инициализация шаблонов строк и синхросигнала
-    const uint32_t div32 = (uint32_t) (fdiv * (1 << 16) + 0.0);
+    const uint32_t div32 = (uint32_t) (clock_get_hz(clk_sys) / 25175000 * (1 << 16) + 0.0);
     PIO_VGA->sm[_SM_VGA].clkdiv = div32 & 0xfffff000; //делитель для конкретной sm
     dma_channel_set_trans_count(dma_channel_data, line_size / 4, false);
 
