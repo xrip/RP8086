@@ -381,10 +381,7 @@ void graphics_init() {
     channel_config_set_read_increment(&data_cfg, true);
     channel_config_set_write_increment(&data_cfg, false);
 
-    uint dreq = DREQ_PIO1_TX0 + sm;
-    if (PIO_VGA == pio0) {
-        dreq = DREQ_PIO0_TX0 + sm;
-    }
+    const uint dreq = (PIO_VGA == pio0 ? DREQ_PIO0_TX0 : DREQ_PIO1_TX0) + sm;
 
     channel_config_set_dreq(&data_cfg, dreq);
     channel_config_set_chain_to(&data_cfg, dma_ctrl_chan);
@@ -432,7 +429,7 @@ void graphics_init() {
 
     // --- CSYNC LOGIC IMPLEMENTATION ---
 
-    // Bit 7 is CSYNC.
+    // Bit 6 is CSYNC.
     // Logic:
     // Normal Line: Idle = High, Pulse = Low.
     // VSYNC Line:  Idle = Low (because VSYNC is active), Pulse = High (Serration).
