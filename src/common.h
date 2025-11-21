@@ -17,7 +17,7 @@
 #define likely(x)       __builtin_expect(!!(x), 1)
 #define unlikely(x)     __builtin_expect(!!(x), 0)
 
-#define PICO_CLOCK_SPEED     (500 * MHZ)  // Raspberry Pi Pico clock frequency
+#define PICO_CLOCK_SPEED     (504 * MHZ)  // Raspberry Pi Pico clock frequency
 #define PSRAM_FREQ_MHZ       (166 * MHZ)
 
 #define I8086_CLOCK_SPEED    (6000 * KHZ)  // i8086 clock frequency

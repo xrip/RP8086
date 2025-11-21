@@ -6,6 +6,12 @@
 #include <arm_acle.h>
 #include <common.h>
 
+#ifdef VGA_CSYNC
+constexpr uint8_t VGA_PINS = 7;
+#else
+constexpr uint8_t VGA_PINS = 8;
+#endif
+
 // --- external hardware / memory references ---
 extern uint8_t port3DA;
 extern uint8_t VIDEORAM[];
@@ -388,20 +394,20 @@ void graphics_init() {
     pio_sm_vga = pio_claim_unused_sm(PIO_VGA, true);
     const uint sm = pio_sm_vga;
 
-    for (int i = 0; i < 8; i++) {
+    for (int i = 0; i < VGA_PINS; i++) {
         gpio_init(VGA_BASE_PIN + i);
         gpio_set_dir(VGA_BASE_PIN + i, GPIO_OUT);
         pio_gpio_init(PIO_VGA, VGA_BASE_PIN + i);
     }
 
-    pio_sm_set_consecutive_pindirs(PIO_VGA, sm, VGA_BASE_PIN, 8, true);
+    pio_sm_set_consecutive_pindirs(PIO_VGA, sm, VGA_BASE_PIN, VGA_PINS, true);
 
     pio_sm_config cfg = pio_get_default_sm_config();
     sm_config_set_out_pin_base(&cfg, VGA_BASE_PIN);
     sm_config_set_wrap(&cfg, offset + 0, offset + (pio_program_VGA.length - 1));
     sm_config_set_fifo_join(&cfg, PIO_FIFO_JOIN_TX);
     sm_config_set_out_shift(&cfg, true, true, 32);
-    sm_config_set_out_pins(&cfg, VGA_BASE_PIN, 8);
+    sm_config_set_out_pins(&cfg, VGA_BASE_PIN, VGA_PINS);
 
     pio_sm_init(PIO_VGA, sm, offset, &cfg);
     pio_sm_set_enabled(PIO_VGA, sm, true);
@@ -474,8 +480,11 @@ void graphics_init() {
     constexpr int hsync_pulse_width = 48 * 2;         // HS_SIZE
 
     constexpr int scanline_bytes = 400 * 2;
+#ifdef VGA_CSYNC
+    picture_hshift_pixels = scanline_bytes - hsync_offset_pixels + 12;
+#else
     picture_hshift_pixels = scanline_bytes - hsync_offset_pixels;
-
+#endif
     // set PIO clock divider approximately for 25.175MHz pixel clock
     const uint32_t div32 = (uint32_t)(clock_get_hz(clk_sys) / 25175000 * (1 << 16) + 0.0);
     PIO_VGA->sm[pio_sm_vga].clkdiv = div32 & 0xfffff000;
@@ -489,9 +498,22 @@ void graphics_init() {
     }
 
     // prepare templates
-    const uint8_t tmpl_video_hv_sync = tmpl_active_video ^ 0b11000000; // TMPL_VHS8
-    const uint8_t tmpl_video_sync = tmpl_active_video ^ 0b10000000;    // TMPL_VS8
-    const uint8_t tmpl_hsync = tmpl_active_video ^ 0b01000000;         // TMPL_HS8
+#ifdef VGA_CSYNC
+    // --- CSYNC MODE (VHBBGGRR) ---
+    // HSync (bit 6) несет композитный сигнал.
+    // VSync (bit 7) всегда 1 (отключен/неактивен).
+    // Логика: XNOR (стандартная композитная синхра для VGA входов типа GBS-C/Scart).
+
+    const uint8_t tmpl_hsync         = 0b10000000; // Обычная строка: импульс HSync = 0 (Bit6=0, Bit7=1)
+    const uint8_t tmpl_video_sync    = 0b10000000; // VSync строка: фон = 0 (Bit6=0, Bit7=1)
+    const uint8_t tmpl_video_hv_sync = 0b11000000; // VSync строка: импульс (serration) = 1 (Bit6=1, Bit7=1)
+    // tmpl_active_video остается 0b11000000 (Bit6=1, Bit7=1)
+#else
+    // --- STANDARD VGA MODE (VHBBGGRR) ---
+    const uint8_t tmpl_video_hv_sync = tmpl_active_video ^ 0b11000000; // 00... (V=0, H=0)
+    const uint8_t tmpl_video_sync    = tmpl_active_video ^ 0b10000000; // 01... (V=0, H=1)
+    const uint8_t tmpl_hsync         = tmpl_active_video ^ 0b01000000; // 10... (V=1, H=0)
+#endif
 
     // base pointer to buffer memory as bytes
     auto base_ptr = (uint8_t *)scanline_buffers[0];
