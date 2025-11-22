@@ -291,7 +291,7 @@ static inline void ntsc_generate_scanline(uint16_t *output_buffer, const size_t 
             break;
             case CGA_320x200x4:
             case CGA_320x200x4_BW: {
-                uint8_t *input_buffer_8bit = &VIDEORAM[__fast_mul(y >> 1, 80) + ((y & 1) << 13)];
+                uint8_t *input_buffer_8bit = (VIDEORAM + ((mc6845.vram_offset + __fast_mul(y >> 1, 80) + ((y & 1) << 13)) & 0x3FFF));
 
                 for (int x = 0; x < 320 / 4; x++) {
                     uint8_t four_pixels = *input_buffer_8bit++;
