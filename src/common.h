@@ -17,7 +17,7 @@
 #define likely(x)       __builtin_expect(!!(x), 1)
 #define unlikely(x)     __builtin_expect(!!(x), 0)
 
-#define PICO_CLOCK_SPEED     (504 * MHZ)  // Raspberry Pi Pico clock frequency
+#define PICO_CLOCK_SPEED     (528 * MHZ)  // Raspberry Pi Pico clock frequency
 #define PSRAM_FREQ_MHZ       (166 * MHZ)
 
 #define I8086_CLOCK_SPEED    (6000 * KHZ)  // i8086 clock frequency
@@ -187,7 +187,7 @@ typedef struct {
     uint8_t cursor_y;
 } mc6845_s;
 
-typedef struct {
+    typedef struct {
     uint8_t port3D8;
     uint8_t port3D9;
     uint8_t port3DA;

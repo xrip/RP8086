@@ -67,7 +67,7 @@ bool handleScancode(const uint8_t ps2scancode) {
     extern uint32_t PICO_CLOCK_SPEED_MHZ;
     assert(PICO_CLOCK_SPEED_MHZ == PICO_CLOCK_SPEED);
     vreg_disable_voltage_limit();
-    vreg_set_voltage(VREG_VOLTAGE_1_60);
+    vreg_set_voltage(VREG_VOLTAGE_1_65);
     busy_wait_at_least_cycles((SYS_CLK_VREG_VOLTAGE_AUTO_ADJUST_DELAY_US * (uint64_t) XOSC_HZ) / 1000000);
 
     qmi_hw->m[0].timing = 0x60007305; // 5x FLASH divisor
@@ -81,7 +81,7 @@ bool handleScancode(const uint8_t ps2scancode) {
     keyboard_init();
     mouse_init();  // Инициализация поддержки Microsoft Serial Mouse
     debug_init();
-
+    FIL file;
     // Mount SD card filesystem
     if (FR_OK != f_mount(&fs, "", 1)) {
         // while (!stdio_usb_connected()) { tight_loop_contents(); }
@@ -89,13 +89,12 @@ bool handleScancode(const uint8_t ps2scancode) {
         reset_usb_boot(0, 0);
     }
 
-    FIL file;
+
     if (FR_OK != f_open(&file, "\\XT\\fdd.img", FA_READ | FA_WRITE)) {
         // while (!stdio_usb_connected()) { tight_loop_contents(); }
         printf("Floppy image not found!");
         reset_usb_boot(0, 0);
     }
-
     pwm = pwm_get_default_config();
     gpio_set_function(BEEPER_PIN, GPIO_FUNC_PWM);
     pwm_config_set_clkdiv(&pwm, 127);
@@ -201,7 +200,7 @@ bool handleScancode(const uint8_t ps2scancode) {
                 }
 
                 if (videomode != old_videomode) {
-                    // printf("Videomode %i\n", videomode);
+                    printf("Videomode %i\n", videomode);
                     graphics_set_mode(videomode);
                     old_videomode = videomode;
                 }

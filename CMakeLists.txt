@@ -36,11 +36,14 @@ add_executable(${PROJECT_NAME}
         src/common.c
 )
 
-add_subdirectory(drivers/graphics)
-add_subdirectory(drivers/vga-nextgen)
+#add_subdirectory(drivers/graphics)
+#add_subdirectory(drivers/vga-nextgen)
+#target_link_libraries(${PROJECT_NAME} PRIVATE vga-nextgen)
+
+add_subdirectory(drivers/ntsc-tv)
 add_subdirectory(drivers/sdcard)
 add_subdirectory(drivers/fatfs)
-target_link_libraries(${PROJECT_NAME} PRIVATE vga-nextgen)
+
 message(STATUS "VGA display enabled")
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE
