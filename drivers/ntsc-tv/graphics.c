@@ -30,7 +30,7 @@ void graphics_init() {
     pwm_init(pwm_slice, &pwm_cfg, true);
     pwm_set_wrap(pwm_slice, pwm_period_cycles - 1);
 /**/
-    // 528Mhz pico bw
+    // 528Mhz pico
     pwm_config pwm_cfg = pwm_get_default_config();
     pwm_config_set_clkdiv_int_frac(&pwm_cfg, 7, 6);
     pwm_init(pwm_slice, &pwm_cfg, true);
