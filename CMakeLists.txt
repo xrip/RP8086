@@ -13,6 +13,8 @@ set(PICO_FLASH_SIZE_BYTES 16777216)
 set(PICO_PLATFORM rp2350-arm-s)
 set(PICO_BOARD WEACT_STUDIO_RP2350B_CORE)
 
+option(VGA "Video output VGA" ON)
+
 include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
 
 project(RP8086 C CXX ASM)
@@ -36,11 +38,14 @@ add_executable(${PROJECT_NAME}
         src/common.c
 )
 
-#add_subdirectory(drivers/graphics)
-#add_subdirectory(drivers/vga-nextgen)
-#target_link_libraries(${PROJECT_NAME} PRIVATE vga-nextgen)
-
+if(VGA)
+add_subdirectory(drivers/graphics)
+add_subdirectory(drivers/vga-nextgen)
+target_link_libraries(${PROJECT_NAME} PRIVATE vga-nextgen)
+else ()
 add_subdirectory(drivers/ntsc-tv)
+endif ()
+
 add_subdirectory(drivers/sdcard)
 add_subdirectory(drivers/fatfs)
 

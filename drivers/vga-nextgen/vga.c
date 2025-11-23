@@ -6,6 +6,7 @@
 #include <arm_acle.h>
 #include <common.h>
 
+#define VGA_CSYNC
 #ifdef VGA_CSYNC
 constexpr uint8_t VGA_PINS = 7;
 #else
@@ -503,16 +504,17 @@ void graphics_init() {
     // HSync (bit 6) несет композитный сигнал.
     // VSync (bit 7) всегда 1 (отключен/неактивен).
     // Логика: XNOR (стандартная композитная синхра для VGA входов типа GBS-C/Scart).
-
-    const uint8_t tmpl_hsync         = 0b10000000; // Обычная строка: импульс HSync = 0 (Bit6=0, Bit7=1)
+// Добавим еще и Sync on Green?
+    const uint8_t tmpl_hsync         = 0b10000100; // Обычная строка: импульс HSync = 0 (Bit6=0, Bit7=1)
     const uint8_t tmpl_video_sync    = 0b10000000; // VSync строка: фон = 0 (Bit6=0, Bit7=1)
     const uint8_t tmpl_video_hv_sync = 0b11000000; // VSync строка: импульс (serration) = 1 (Bit6=1, Bit7=1)
     // tmpl_active_video остается 0b11000000 (Bit6=1, Bit7=1)
 #else
     // --- STANDARD VGA MODE (VHBBGGRR) ---
-    const uint8_t tmpl_video_hv_sync = tmpl_active_video ^ 0b11000000; // 00... (V=0, H=0)
-    const uint8_t tmpl_video_sync    = tmpl_active_video ^ 0b10000000; // 01... (V=0, H=1)
     const uint8_t tmpl_hsync         = tmpl_active_video ^ 0b01000000; // 10... (V=1, H=0)
+    const uint8_t tmpl_video_sync    = tmpl_active_video ^ 0b10000000; // 01... (V=0, H=1)
+    const uint8_t tmpl_video_hv_sync = tmpl_active_video ^ 0b11000000; // 00... (V=0, H=0)
+
 #endif
 
     // base pointer to buffer memory as bytes
