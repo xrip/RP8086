@@ -185,7 +185,7 @@ static inline void ntsc_generate_scanline(uint16_t *output_buffer, const size_t 
 
         // Color burst signal - 9 cycles at 3.579545 MHz
         // Alternates between levels to create a reference signal for color decoding
-        if (((cga.port3D8 >> 3) & 1) && (cga.port3D8 & 0b10000)) {
+        if (((cga.port3D8 >> 3) & 1) && (cga.port3D8 & 0b10000) && !cga.port3DA_tandy) {
             // Почему-то в 640х480 фазу повернуло
             for (int j = 0; j < 9; j++) {
                 *buffer_ptr++ = 3; // Phase 270°
@@ -291,7 +291,7 @@ static inline void ntsc_generate_scanline(uint16_t *output_buffer, const size_t 
             break;
             case CGA_320x200x4:
             case CGA_320x200x4_BW: {
-                uint8_t *input_buffer_8bit = (VIDEORAM + ((mc6845.vram_offset + __fast_mul(y >> 1, 80) + ((y & 1) << 13)) & 0x3FFF));
+                uint8_t *input_buffer_8bit = VIDEORAM + ((mc6845.vram_offset + __fast_mul(y >> 1, 80) + ((y & 1) << 13)) & 0x3FFF);
 
                 for (int x = 0; x < 320 / 4; x++) {
                     uint8_t four_pixels = *input_buffer_8bit++;
@@ -330,6 +330,43 @@ static inline void ntsc_generate_scanline(uint16_t *output_buffer, const size_t 
                     *buffer_ptr++ = brightness[cga_byte >> 2 & 1];
                     *buffer_ptr++ = brightness[cga_byte >> 1 & 1];
                     *buffer_ptr++ = brightness[cga_byte >> 0 & 1];
+                }
+                break;
+            }
+            case TGA_160x200x16: {
+                const uint8_t *input_buffer_8bit = VIDEORAM + (__fast_mul(y >> 1, 80) + ((y & 1) << 13));
+
+                for (int x = 0; x < 320 / 4; x++) {
+                    const uint8_t two_pixels = *input_buffer_8bit++; // Fetch 2 pixels from TGA memory
+                    uint8_t color1 = two_pixels >> 4;
+                    uint8_t color2 = two_pixels & 15;
+
+                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color1 * 4 + 0); // phase 0
+                    buffer_ptr += 2;
+
+                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color1 * 4 + 2); // phase 2
+                    buffer_ptr += 2;
+
+                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color2 * 4 + 0); // phase 0
+                    buffer_ptr += 2;
+
+                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color2 * 4 + 2); // phase 2
+                    buffer_ptr += 2;
+                }
+                break;
+            }
+            case TGA_320x200x16: {
+                uint8_t *input_buffer_8bit =  VIDEORAM + (((y & 3) << 13) + __fast_mul(y >> 2, 160));
+                for (int x = 0; x < 320 / 2; x++) {
+                    uint8_t two_pixels = *input_buffer_8bit++;
+
+                    uint8_t color = two_pixels >> 4;
+                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + 0); // phase 0
+                    buffer_ptr += 2;
+
+                    color = two_pixels & 15;
+                    *(uint32_t *) buffer_ptr = *(uint32_t *) (ntsc_palette + color * 4 + 2); // phase 2
+                    buffer_ptr += 2;
                 }
                 break;
             }
