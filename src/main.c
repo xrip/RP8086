@@ -170,7 +170,7 @@ bool handleScancode(const uint8_t ps2scancode) {
                     if (unlikely(cga.port3D8 & 0b10000)) {
                         {
                             videomode = CGA_640x200x2;
-
+                            graphics_set_bgcolor(0);
                             graphics_set_palette(0, 0);
                             graphics_set_palette(1, cga_palette[cga.port3D9 & 0b1111]);
                         }
@@ -180,14 +180,15 @@ bool handleScancode(const uint8_t ps2scancode) {
                         const uint8_t palette = (cga.port3D8 & 4) ? 2 : ((cga.port3D9 >> 5) & 1);
                         const uint8_t intensity = (cga.port3D9 >> 4) & 1;
 
-                        graphics_set_palette(0, cga_palette[cga.port3D9 & 0b1111]);
-
+                        graphics_set_palette(0, cga_palette[cga.port3D9 & 0xF]);
+                        graphics_set_bgcolor(cga.port3D9 & 0xF);
                         for (int i = 1; i < 4; i++) {
                             graphics_set_palette(i, cga_palette[cga_gfxpal[palette][intensity][i]]);
                         }
                     }
                 } else {
                     videomode = cga.port3D8 & 1 ? TEXTMODE_80x25_COLOR : TEXTMODE_40x25_COLOR;
+                    graphics_set_bgcolor(cga.port3D9 & 0xF);
                     for (int i = 0; i < 16; i++) {
                         graphics_set_palette(i, cga_palette[i]);
                     }
@@ -197,9 +198,11 @@ bool handleScancode(const uint8_t ps2scancode) {
                     // printf("Tandy hack detected: %i\n", videomode);
                     // videomode = (cga.port3D8 & 0b10000) ? TGA_320x200x16 : TGA_160x200x16;
                     videomode = videomode == CGA_640x200x2 ? TGA_320x200x16 : TGA_160x200x16;
+                    graphics_set_bgcolor(cga.port3D9 & 0xF);
                     for (int i = 0; i < 16; i++) {
                         graphics_set_palette(i, cga_palette[i]);
                     }
+
                 }
 
                 if (videomode != old_videomode) {
@@ -208,6 +211,8 @@ bool handleScancode(const uint8_t ps2scancode) {
                     old_videomode = videomode;
                 }
 
+
+                // printf("Port 3D8 %x, port 3D9 %x\n", cga.port3D8, cga.port3D9);
                 cga.updated = false;
             }
         //__wfi();
