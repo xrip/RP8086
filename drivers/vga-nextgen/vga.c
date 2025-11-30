@@ -6,7 +6,7 @@
 #include <arm_acle.h>
 #include <common.h>
 
-#define VGA_CSYNC
+//#define VGA_CSYNC
 #ifdef VGA_CSYNC
 constexpr uint8_t VGA_PINS = 7;
 #else
@@ -138,7 +138,7 @@ void __time_critical_func() vga_scanline_dma() {
             const uint8_t screen_y = y / char_scanlines;
 
             //указатель откуда начать считывать символы
-            const uint32_t *__restrict text_buffer_line = (uint32_t *) VIDEORAM + mc6845.vram_offset + __fast_mul(screen_y, mc6845.r.h_displayed / 2);
+            const uint32_t *__restrict text_buffer_line = (uint32_t *) &VIDEORAM[mc6845.vram_offset + __fast_mul(screen_y, mc6845.r.h_displayed << 1)];
             __builtin_prefetch(text_buffer_line);
 
             const bool is_cursor_line_active =
@@ -210,7 +210,8 @@ void __time_critical_func() vga_scanline_dma() {
             const uint8_t screen_y = y / char_scanlines;
 
             //указатель откуда начать считывать символы
-            const uint32_t *__restrict text_buffer_line = (uint32_t *) VIDEORAM + mc6845.vram_offset + __fast_mul(screen_y, mc6845.r.h_displayed / 2);
+            const uint32_t *__restrict text_buffer_line = (uint32_t *) &VIDEORAM[(mc6845.vram_offset + __fast_mul(screen_y, mc6845.r.h_displayed << 1)) & 0x3FFF];
+            __builtin_prefetch(text_buffer_line);
             const bool is_cursor_line_active =
                     unlikely(mc6845.cursor_blink_state) &&
                     (screen_y == mc6845.cursor_y) &&
@@ -505,7 +506,7 @@ void graphics_init() {
     // VSync (bit 7) всегда 1 (отключен/неактивен).
     // Логика: XNOR (стандартная композитная синхра для VGA входов типа GBS-C/Scart).
 // Добавим еще и Sync on Green?
-    const uint8_t tmpl_hsync         = 0b10000100; // Обычная строка: импульс HSync = 0 (Bit6=0, Bit7=1)
+    const uint8_t tmpl_hsync         = 0b10000000; // Обычная строка: импульс HSync = 0 (Bit6=0, Bit7=1)
     const uint8_t tmpl_video_sync    = 0b10000000; // VSync строка: фон = 0 (Bit6=0, Bit7=1)
     const uint8_t tmpl_video_hv_sync = 0b11000000; // VSync строка: импульс (serration) = 1 (Bit6=1, Bit7=1)
     // tmpl_active_video остается 0b11000000 (Bit6=1, Bit7=1)
