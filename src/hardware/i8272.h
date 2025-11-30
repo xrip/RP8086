@@ -222,7 +222,7 @@ __force_inline static void i8272_writeport(const uint16_t port_number, const uin
                     [[maybe_unused]] bool mfm = command[0] & (1 << 6);
                     // bool skipDeleted = command[0] & (1 << 5);
 
-                    int unit = command[1] & 3;
+                    int drive = command[1] & 3;
                     int head = (command[1] >> 2) & 1;
 
                     auto cylinder = command[2];
@@ -239,12 +239,9 @@ __force_inline static void i8272_writeport(const uint16_t port_number, const uin
                     assert(mfm);
 
                     // prepare for write
-                    bool failed = false;
-                    /* TODO: Проверять доступ к другой дискетке
-                    if(!io)
-                        failed = true;
-*/
-                    response[0] = unit | head << 2;
+                    const bool failed = drive > 0;
+
+                    response[0] = drive | head << 2;
 
                     if (failed)
                         response[0] |= 1 << 6;
