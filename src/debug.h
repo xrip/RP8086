@@ -275,7 +275,7 @@ __force_inline void debug_init() {
 }
 
 __force_inline void debug_console(const int videomode) {
-    static bool video_enabled = true;
+    static bool video_enabled = false;
     static bool ctty_mode = false;
     static ansi_state_t ansi_state = ANSI_STATE_NORMAL;
     static char ansi_buffer[16];
@@ -438,8 +438,10 @@ __force_inline void debug_console(const int videomode) {
 #define keyboard_tick(...)
 
 #else
+
+#include <pico/stdio_semihosting.h>
 #include "hid_app.h"
 #include "tusb.h"
-#define debug_init(...)
+#define debug_init(...) stdio_semihosting_init()
 #define debug_console(...)
 #endif

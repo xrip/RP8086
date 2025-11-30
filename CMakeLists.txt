@@ -79,6 +79,7 @@ if (DEBUG)
     pico_enable_stdio_usb(${PROJECT_NAME} 1)
     set(BUILD_NAME "${BUILD_NAME}-DEBUG")
 else ()
+    pico_enable_stdio_semihosting(${PROJECT_NAME} ENABLED)
     set(FAMILY rp2350)
     set(BOARD pico_sdk)
     add_subdirectory(drivers/usbhid)
@@ -87,6 +88,7 @@ else ()
             usbhid
             tinyusb_host
             tinyusb_board
+            pico_stdio_semihosting
     )
 endif ()
 
