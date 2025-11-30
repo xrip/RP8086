@@ -6,7 +6,7 @@
 #include <arm_acle.h>
 #include <common.h>
 
-//#define VGA_CSYNC
+#define VGA_CSYNC
 #ifdef VGA_CSYNC
 constexpr uint8_t VGA_PINS = 7;
 #else
@@ -106,17 +106,8 @@ void __time_critical_func() vga_scanline_dma() {
     port3DA = 0;
 
     // choose odd/even image buffer pointer
-    const unsigned int odd_even = current_scanline & 1;
+    unsigned int odd_even = current_scanline & 1;
 
-    uint32_t **scanline_output_ptr = &scanline_buffers[2 + odd_even];
-    uint16_t *__restrict scanline_output_16 = (uint16_t *)(*scanline_output_ptr) + picture_hshift_pixels / 2;
-    uint32_t *__restrict scanline_output_32 = (uint32_t *)scanline_output_16;
-
-    // If line index beyond prepared image area — fall back to blank
-    if (unlikely(current_scanline >= 400)) {
-        dma_channel_set_read_addr(dma_ctrl_chan, &scanline_buffers[0], false);
-        return;
-    }
 
     uint32_t y = current_scanline;
 
@@ -125,7 +116,22 @@ void __time_critical_func() vga_scanline_dma() {
         if (odd_even) {
             return;
         }
-        y >>= 1; // 200 logical lines
+         y >>= 1; // 200 logical lines
+    } else {
+        // Зафиксируем первый буфер
+        odd_even = 0;
+    }
+
+
+    uint32_t **scanline_output_ptr = &scanline_buffers[2 + odd_even];
+    uint16_t *__restrict scanline_output_16 = (uint16_t *)(*scanline_output_ptr) + picture_hshift_pixels / 2;
+    uint32_t *__restrict scanline_output_32 = (uint32_t *)scanline_output_16;
+
+    // If line index beyond prepared image area — fall back to blank
+    if (unlikely(current_scanline >= (mc6845.r.v_displayed * (mc6845.r.max_scanline_addr + 1) *2 ))) {
+        port3DA |= 1;
+        dma_channel_set_read_addr(dma_ctrl_chan, &scanline_buffers[0], false);
+        return;
     }
 
     switch (graphics_mode) {
