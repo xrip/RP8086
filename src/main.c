@@ -161,7 +161,10 @@ bool handleScancode(const uint8_t ps2scancode) {
             next_frame = delayed_by_us(next_frame, 16666);
             mc6845.cursor_blink_state = frame_counter++ >> 4 & 1;
 
-            if (cga.updated) {
+            debug_console(videomode);
+        }
+
+        if (cga.updated) {
                 if (unlikely(cga.port3D8 & 0b10)) {
                     // Bit 1: Graphics/Text Select
                     if (unlikely(cga.port3D8 & 0b10000)) {
@@ -207,10 +210,6 @@ bool handleScancode(const uint8_t ps2scancode) {
 
                 cga.updated = false;
             }
-
-            debug_console(videomode);
-        }
-
         //__wfi();
         tight_loop_contents();
     }
