@@ -114,6 +114,7 @@ void __time_critical_func() vga_scanline_dma() {
     // Non-interlace: skip odd sublines and fold y
     if (likely((mc6845.r.interlace_mode & 1) == 0)) {
         if (odd_even) {
+            port3DA = 1;
             return;
         }
          y >>= 1; // 200 logical lines
@@ -128,9 +129,9 @@ void __time_critical_func() vga_scanline_dma() {
     uint32_t *__restrict scanline_output_32 = (uint32_t *)scanline_output_16;
 
     // If line index beyond prepared image area — fall back to blank
-    if (unlikely(current_scanline >= (mc6845.r.v_displayed * (mc6845.r.max_scanline_addr + 1) *2 ))) {
-        port3DA |= 1;
+    if (unlikely(current_scanline >= ((mc6845.r.v_displayed * (mc6845.r.max_scanline_addr + 1)) *2 ))) {
         dma_channel_set_read_addr(dma_ctrl_chan, &scanline_buffers[0], false);
+        port3DA = 1;
         return;
     }
 
@@ -276,7 +277,7 @@ void __time_critical_func() vga_scanline_dma() {
     switch (graphics_mode) {
         case CGA_320x200x4:
         case CGA_320x200x4_BW: {
-            const uint32_t *__restrict cga_row = (uint32_t *) (VIDEORAM + ((mc6845.vram_offset + __fast_mul(y >> 1, 80) + ((y & 1) << 13)) & 0x3FFF));
+            const uint32_t *__restrict cga_row = (uint32_t *) &VIDEORAM[(mc6845.vram_offset + __fast_mul(y >> 1, 80) + ((y & 1) << 13)) & 0x3FFF];
             __builtin_prefetch(cga_row);
 
             // 2bit buf, 16 pixels at once, 32-bit writes
@@ -371,8 +372,8 @@ void __time_critical_func() vga_scanline_dma() {
             }
             break;
     }
-    dma_channel_set_read_addr(dma_ctrl_chan, scanline_output_ptr, false);
     port3DA |= 1; // no more data shown
+    dma_channel_set_read_addr(dma_ctrl_chan, scanline_output_ptr, false);
 }
 
 // -----------------------------------------------------------------------------
