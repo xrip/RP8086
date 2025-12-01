@@ -34,6 +34,13 @@ const struct pio_program pio_program_VGA = {
 
 // --- Scanline buffer storage (aligned) ---
 // scanline_buffers: [0]=blank, [1]=vsync, [2]=odd image, [3]=even image
+enum {
+    BLANK,
+    VSYNC,
+    ODD,
+    EVEN
+};
+
 static uint32_t *scanline_buffers[4] __attribute__((aligned(4))) = {0};
 static uint32_t scanline_buffer_mem[(400 * 2 * 4) / 4] __attribute__((aligned(32)));
 
@@ -80,7 +87,7 @@ static uint16_t textmode_palette_lut[256 * 4] __attribute__((aligned(4)));
 enum graphics_mode_t graphics_mode;
 
 void graphics_set_bgcolor(const uint32_t color888) {
-    uint32_t *scanline_output_ptr = scanline_buffers[0] + picture_hshift_pixels / 4;
+    uint32_t *scanline_output_ptr = scanline_buffers[BLANK] + picture_hshift_pixels / 4;
     const uint32_t color = ((palette[color888] << 16) | palette[color888]) & 0x3f3f3f3f | 0xc0c0c0c0;
     for (int i = 160; i--;) {
         *scanline_output_ptr++ = color;
@@ -88,38 +95,31 @@ void graphics_set_bgcolor(const uint32_t color888) {
 }
 
 void __time_critical_func() vga_scanline_dma() {
-    // acknowledge interrupt for control channel
-    dma_hw->ints0 = 1u << dma_ctrl_chan;
-
     static uint32_t frame_counter = 0; // previously frame_number
     static uint32_t current_scanline = 0; // previously screen_line
 
+    // acknowledge interrupt for control channel
+    dma_hw->ints0 = 1u << dma_ctrl_chan;
+
     // advance scanline/frame counters
     current_scanline++;
-    if (current_scanline == (uint32_t) total_scanlines) {
+    if (unlikely(current_scanline == total_scanlines)) {
         current_scanline = 0;
         frame_counter++;
     }
 
     // If outside visible area - mark output as finished
-    if (unlikely(current_scanline >= (uint32_t)visible_scanlines)) {
-        port3DA = 8;
-        const int vsync = (current_scanline >= (uint32_t) vsync_start_line && current_scanline <= (uint32_t) vsync_end_line) ? 1 : 0;
-
-        // write pointer in one op (avoid extra branching later)
-        dma_channel_set_read_addr(dma_ctrl_chan, &scanline_buffers[vsync], false);
-        port3DA |= 1;
+    if (unlikely(current_scanline >= visible_scanlines)) {
+        const int is_vsync = (current_scanline >= (uint32_t) vsync_start_line && current_scanline <= (uint32_t) vsync_end_line) ? VSYNC : BLANK;
+        dma_channel_set_read_addr(dma_ctrl_chan, &scanline_buffers[is_vsync], false);
+        port3DA = 9;
         return;
     }
 
-    // activate output for visible lines
-    port3DA = 0;
-
     // choose odd/even image buffer pointer
-    unsigned int odd_even = current_scanline & 1;
-
-
     uint32_t y = current_scanline;
+    unsigned int odd_even = y & 1;
+
 
     // Non-interlace: skip odd sublines and fold y
     if (likely((mc6845.r.interlace_mode & 1) == 0)) {
@@ -135,16 +135,17 @@ void __time_critical_func() vga_scanline_dma() {
 
 
     uint32_t **scanline_output_ptr = &scanline_buffers[2 + odd_even];
-    uint16_t *__restrict scanline_output_16 = (uint16_t *) (*scanline_output_ptr) + picture_hshift_pixels / 2;
-    uint32_t *__restrict scanline_output_32 = (uint32_t *) scanline_output_16;
+    uint32_t *__restrict scanline_output_32 = *scanline_output_ptr + picture_hshift_pixels / 4;
 
     // If line index beyond prepared image area — fall back to blank
-    if (unlikely(current_scanline >= ((mc6845.r.v_displayed * (mc6845.r.max_scanline_addr + 1)) *2 ))) {
-        dma_channel_set_read_addr(dma_ctrl_chan, &scanline_buffers[0], false);
+    if (unlikely(current_scanline >= mc6845.r.v_displayed * (mc6845.r.max_scanline_addr + 1) * 2)) {
+        dma_channel_set_read_addr(dma_ctrl_chan, &scanline_buffers[BLANK], false);
         port3DA = 1;
         return;
     }
 
+    // activate output for visible lines
+    port3DA = 0;
     switch (graphics_mode) {
         case TEXTMODE_40x25_COLOR:
         case TEXTMODE_40x25_BW: {
@@ -213,11 +214,9 @@ void __time_critical_func() vga_scanline_dma() {
                     glyph_pixels >>= 2;
                 }
             }
-
-            dma_channel_set_read_addr(dma_ctrl_chan, scanline_output_ptr, false);
-            port3DA |= 1; // no more data shown
-            return;
+            break;
         }
+        default:
         case TEXTMODE_80x25_COLOR:
         case TEXTMODE_80x25_BW: {
             // "слой" символа
@@ -276,16 +275,8 @@ void __time_critical_func() vga_scanline_dma() {
                 *scanline_output_32++ = palette_color[glyph_pixels & 3] | ((uint32_t) palette_color[glyph_pixels >> 2 & 3] << 16);
                 *scanline_output_32++ = palette_color[glyph_pixels >> 4 & 3] | ((uint32_t) palette_color[glyph_pixels >> 6] << 16);
             }
-
-            dma_channel_set_read_addr(dma_ctrl_chan, scanline_output_ptr, false);
-            port3DA |= 1; // no more data shown
-            return;
+            break;
         }
-    }
-    // const uint16_t *current_palette = palette[(y & is_flash_line) + (frame_number & is_flash_frame) & 1];
-    //const uint16_t *current_palette = palette;
-
-    switch (graphics_mode) {
         case CGA_320x200x4:
         case CGA_320x200x4_BW: {
             const uint32_t *__restrict cga_row = (uint32_t *) &VIDEORAM[(mc6845.vram_offset + __fast_mul(y >> 1, 80) + ((y & 1) << 13)) & 0x3FFF];
@@ -316,7 +307,8 @@ void __time_critical_func() vga_scanline_dma() {
         case CGA_640x200x2: {
             const uint32_t *__restrict cga_row = (uint32_t *) (VIDEORAM + ((mc6845.vram_offset + __fast_mul(y >> 1, 80) + ((y & 1) << 13)) & 0x3FFF));
             __builtin_prefetch(cga_row);
-            auto output_buffer_8bit = (uint8_t *) scanline_output_16;
+            // TODO: Переделать на 32битную запись
+            auto output_buffer_8bit = (uint8_t *) scanline_output_32;
             //1bit buf, 32 pixels at once
             for (int x = 20; x--;) {
                 uint32_t dword = __rbit(__rev(*cga_row++)); // Fetch 32 pixels from CGA memory
@@ -376,21 +368,14 @@ void __time_critical_func() vga_scanline_dma() {
             }
             break;
         }
-        default:
-            const uint8_t *vga_row = &VIDEORAM[__fast_mul(y, 160)];
-            for (int x = 160; x--;) {
-                *scanline_output_16++ = palette[*vga_row++];
-            }
-            break;
     }
-    port3DA |= 1; // no more data shown
+
     dma_channel_set_read_addr(dma_ctrl_chan, scanline_output_ptr, false);
+    port3DA = 1; // no more data shown
 }
 
 // -----------------------------------------------------------------------------
 void graphics_set_buffer(uint8_t *buffer, const uint16_t width, const uint16_t height) {
-    (void) width;
-    (void) height;
     framebuffer_ptr = buffer;
 }
 
@@ -442,19 +427,14 @@ void graphics_init() {
     channel_config_set_read_increment(&data_cfg, true);
     channel_config_set_write_increment(&data_cfg, false);
 
-    uint dreq = DREQ_PIO1_TX0 + sm;
-    if (PIO_VGA == pio0) {
-        dreq = DREQ_PIO0_TX0 + sm;
-    }
-
-    channel_config_set_dreq(&data_cfg, dreq);
+    channel_config_set_dreq(&data_cfg, (PIO_VGA == pio0 ? DREQ_PIO0_TX0 : DREQ_PIO1_TX0) + sm);
     channel_config_set_chain_to(&data_cfg, dma_ctrl_chan);
 
     dma_channel_configure(
         dma_data_chan,
         &data_cfg,
         &PIO_VGA->txf[sm], // write address (PIO TX FIFO)
-        scanline_buffers[0], // read address (will be updated)
+        scanline_buffers[BLANK], // read address (will be updated)
         600 / 4,
         false);
 
@@ -469,7 +449,7 @@ void graphics_init() {
         dma_ctrl_chan,
         &ctrl_cfg,
         &dma_hw->ch[dma_data_chan].read_addr, // write address (point to read_addr of data channel)
-        &scanline_buffers[0], // read address (pattern pointer)
+        &scanline_buffers[BLANK], // read address (pattern pointer)
         1,
         false);
 
@@ -523,21 +503,20 @@ void graphics_init() {
     // HSync (bit 6) несет композитный сигнал.
     // VSync (bit 7) всегда 1 (отключен/неактивен).
     // Логика: XNOR (стандартная композитная синхра для VGA входов типа GBS-C/Scart).
-    // Добавим еще и Sync on Green?
-    const uint8_t tmpl_hsync = 0b10000000; // Обычная строка: импульс HSync = 0 (Bit6=0, Bit7=1)
-    const uint8_t tmpl_video_sync = 0b10000000; // VSync строка: фон = 0 (Bit6=0, Bit7=1)
-    const uint8_t tmpl_video_hv_sync = 0b11000000; // VSync строка: импульс (serration) = 1 (Bit6=1, Bit7=1)
+    constexpr uint8_t tmpl_hsync         = 0b10000000; // Обычная строка: импульс HSync = 0 (Bit6=0, Bit7=1)
+    constexpr uint8_t tmpl_vsync         = 0b10000000; // VSync строка: фон = 0 (Bit6=0, Bit7=1)
+    constexpr uint8_t tmpl_video_hv_sync = 0b11000000; // VSync строка: импульс (serration) = 1 (Bit6=1, Bit7=1)
     // tmpl_active_video остается 0b11000000 (Bit6=1, Bit7=1)
 #else
     // --- STANDARD VGA MODE (VHBBGGRR) ---
     const uint8_t tmpl_hsync = tmpl_active_video ^ 0b01000000; // 10... (V=1, H=0)
-    const uint8_t tmpl_video_sync = tmpl_active_video ^ 0b10000000; // 01... (V=0, H=1)
+    const uint8_t tmpl_vsync = tmpl_active_video ^ 0b10000000; // 01... (V=0, H=1)
     const uint8_t tmpl_video_hv_sync = tmpl_active_video ^ 0b11000000; // 00... (V=0, H=0)
 
 #endif
 
     // base pointer to buffer memory as bytes
-    auto base_ptr = (uint8_t *) scanline_buffers[0];
+    auto base_ptr = (uint8_t *) scanline_buffers[BLANK];
 
     // пустая строка (active video background)
     memset(base_ptr, tmpl_active_video, scanline_bytes);
@@ -546,15 +525,15 @@ void graphics_init() {
     memset(base_ptr, tmpl_hsync, hsync_pulse_width);
 
     // кадровая синхра (vsync)
-    base_ptr = (uint8_t *) scanline_buffers[1];
-    memset(base_ptr, tmpl_video_sync, scanline_bytes);
+    base_ptr = (uint8_t *) scanline_buffers[VSYNC];
+    memset(base_ptr, tmpl_vsync, scanline_bytes);
     memset(base_ptr, tmpl_video_hv_sync, hsync_pulse_width);
 
     // заготовки для строк с изображением (copy blank template)
-    base_ptr = (uint8_t *) scanline_buffers[2];
-    memcpy(base_ptr, scanline_buffers[0], scanline_bytes);
-    base_ptr = (uint8_t *) scanline_buffers[3];
-    memcpy(base_ptr, scanline_buffers[0], scanline_bytes);
+    base_ptr = (uint8_t *) scanline_buffers[ODD];
+    memcpy(base_ptr, scanline_buffers[BLANK], scanline_bytes);
+    base_ptr = (uint8_t *) scanline_buffers[EVEN];
+    memcpy(base_ptr, scanline_buffers[BLANK], scanline_bytes);
 }
 
 // -----------------------------------------------------------------------------
