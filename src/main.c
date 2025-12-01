@@ -81,7 +81,7 @@ bool handleScancode(const uint8_t ps2scancode) {
     keyboard_init();
     mouse_init();  // Инициализация поддержки Microsoft Serial Mouse
     debug_init();
-    FIL file;
+    FIL floppy_files[2];
     // Mount SD card filesystem
     if (FR_OK != f_mount(&fs, "", 1)) {
         // while (!stdio_usb_connected()) { tight_loop_contents(); }
@@ -89,11 +89,16 @@ bool handleScancode(const uint8_t ps2scancode) {
         reset_usb_boot(0, 0);
     }
 
-
-    if (FR_OK != f_open(&file, "\\XT\\fdd.img", FA_READ | FA_WRITE)) {
+    // Открываем первую дискетку (обязательная)
+    if (FR_OK != f_open(&floppy_files[0], "\\XT\\fdd.img", FA_READ | FA_WRITE)) {
         // while (!stdio_usb_connected()) { tight_loop_contents(); }
         printf("Floppy image not found!");
         reset_usb_boot(0, 0);
+    }
+
+    // Открываем вторую дискетку (опциональная)
+    if (FR_OK != f_open(&floppy_files[1], "\\XT\\fdd1.img", FA_READ | FA_WRITE)) {
+        printf("Warning: Second floppy image (fdd1.img) not found, drive B: will be unavailable\n");
     }
     pwm = pwm_get_default_config();
     gpio_set_function(BEEPER_PIN, GPIO_FUNC_PWM);
@@ -107,7 +112,6 @@ bool handleScancode(const uint8_t ps2scancode) {
 
 
     graphics_init();
-    graphics_set_buffer((uint8_t *) VIDEORAM, 320, 200);
     graphics_set_mode(TEXTMODE_80x25_BW);
     for (int i = 0; i < 16; i++) {
         graphics_set_palette(i, cga_palette[i]);
@@ -130,13 +134,13 @@ bool handleScancode(const uint8_t ps2scancode) {
                     case DMA_SOURCE_MEM_WRITE: memcpy((void *) (channel->data_source + channel->data_offset), &RAM[dest_addr], size);
                         break;
                     case DMA_SOURCE_FILE_READ:
-                        f_lseek(&file, channel->data_offset);
-                        f_read(&file, &RAM[dest_addr], size, &br);
+                        f_lseek(&floppy_files[channel->file_index], channel->data_offset);
+                        f_read(&floppy_files[channel->file_index], &RAM[dest_addr], size, &br);
                         // printf("Read %x size %x offset %x \n", br, size, channel->data_offset);
                         break;
                     case DMA_SOURCE_FILE_WRITE:
-                        f_lseek(&file, channel->data_offset);
-                        f_write(&file, &RAM[dest_addr], size, &br);
+                        f_lseek(&floppy_files[channel->file_index], channel->data_offset);
+                        f_write(&floppy_files[channel->file_index], &RAM[dest_addr], size, &br);
                         break;
                 }
 
@@ -172,7 +176,7 @@ bool handleScancode(const uint8_t ps2scancode) {
                             videomode = CGA_640x200x2;
                             graphics_set_bgcolor(0);
                             graphics_set_palette(0, 0);
-                            graphics_set_palette(1, cga_palette[cga.port3D9 & 0b1111]);
+                            graphics_set_palette(1, (cga.port3D8 & 4) ? cga_palette[cga.port3D9 & 0xF] : cga_palette[15]);
                         }
                     } else {
                         videomode = CGA_320x200x4;
@@ -198,7 +202,7 @@ bool handleScancode(const uint8_t ps2scancode) {
                     // printf("Tandy hack detected: %i\n", videomode);
                     // videomode = (cga.port3D8 & 0b10000) ? TGA_320x200x16 : TGA_160x200x16;
                     videomode = videomode == CGA_640x200x2 ? TGA_320x200x16 : TGA_160x200x16;
-                    graphics_set_bgcolor(cga.port3D9 & 0xF);
+                    // graphics_set_bgcolor(cga.port3D9 & 0xF);
                     for (int i = 0; i < 16; i++) {
                         graphics_set_palette(i, cga_palette[i]);
                     }

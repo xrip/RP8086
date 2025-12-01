@@ -197,7 +197,6 @@ void __time_critical_func() vga_scanline_dma() {
             }
             break;
         }
-        default:
         case TEXTMODE_80x25_COLOR:
         case TEXTMODE_80x25_BW: {
             // "слой" символа
@@ -285,25 +284,32 @@ void __time_critical_func() vga_scanline_dma() {
             }
             break;
         }
+            default:
         case CGA_640x200x2: {
-            const uint32_t *__restrict cga_row = (uint32_t *) (VIDEORAM + ((mc6845.vram_offset + __fast_mul(y >> 1, 80) + ((y & 1) << 13)) & 0x3FFF));
+            const uint32_t *__restrict cga_row = (uint32_t *) &VIDEORAM[__fast_mul(y >> 1, 80) + ((y & 1) << 13) & 0x3FFF];
             __builtin_prefetch(cga_row);
-            // TODO: Переделать на 32битную запись
-            auto output_buffer_8bit = (uint8_t *) scanline_output_32;
             //1bit buf, 32 pixels at once
             for (int x = 20; x--;) {
                 uint32_t dword = __rbit(__rev(*cga_row++)); // Fetch 32 pixels from CGA memory
 
-#pragma GCC unroll(32)
-                for (int i = 32; i--;) {
-                    *output_buffer_8bit++ = palette[dword & 1];
+                // Process 32 pixels in groups of 4 (8 iterations)
+                for (int i = 8; i--;) {
+                    uint32_t pixel_group = 0;
+                    pixel_group |= palette[dword & 1];
                     dword >>= 1;
+                    pixel_group |= (uint32_t) palette[dword & 1] << 8;
+                    dword >>= 1;
+                    pixel_group |= (uint32_t) palette[dword & 1] << 16;
+                    dword >>= 1;
+                    pixel_group |= (uint32_t) palette[dword & 1] << 24;
+                    dword >>= 1;
+                    *scanline_output_32++ = pixel_group;
                 }
             }
             break;
         }
         case TGA_160x200x16: {
-            const uint32_t *__restrict tga_row = (uint32_t *) (VIDEORAM + (y & 1) * 8192 + __fast_mul(y >> 1, 80));
+            const uint32_t *__restrict tga_row = (uint32_t *) &VIDEORAM[(__fast_mul(y >> 1, 80) + ((y & 1) << 13)) & 0x3FFF];
             __builtin_prefetch(tga_row);
             for (int x = 20; x--;) {
                 const uint32_t dword = *tga_row++; // Fetch 8 pixels from TGA memory
@@ -336,7 +342,7 @@ void __time_critical_func() vga_scanline_dma() {
         }
         case TGA_320x200x16: {
             //4bit buf, 32-bit reads
-            const uint32_t *__restrict tga_row = (uint32_t *) (VIDEORAM + (y & 3) * 8192 + __fast_mul(y >> 2, 160));
+            const uint32_t *__restrict tga_row = (uint32_t *) &VIDEORAM[(__fast_mul(y >> 2, 160) + ((y & 3) << 13)) & 0x7FFF];
             __builtin_prefetch(tga_row);
             for (int x = 40; x--;) {
                 const uint32_t dword = *tga_row++; // Fetch 8 pixels from TGA memory

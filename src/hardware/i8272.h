@@ -159,8 +159,8 @@ __force_inline static void i8272_writeport(const uint16_t port_number, const uin
 
                     //auto sectorSize = 128 << number;
 
-                    // У нас только одна дискетка
-                    const bool failed = drive > 0;
+                    // У нас две дискетки: drive 0 и drive 1
+                    const bool failed = drive > 1;
 
                     response[0] = drive | head << 2;
 
@@ -182,7 +182,7 @@ __force_inline static void i8272_writeport(const uint16_t port_number, const uin
                         // IRQ6 будет сгенерирован автоматически при завершении передачи
                         // const uint32_t size = endOfTrack * FDD_SECTOR_SIZE;
                         const uint32_t offset = ((cylinder * FDD_HEADS + head) * FDD_SECTORS_PER_TRACK + (sector - 1)) * FDD_SECTOR_SIZE;
-                        dma_start_transfer(2, 0x01, &FLOPPY, offset, 6);
+                        dma_start_transfer(2, 0x01, &FLOPPY, offset, drive, 6);
                     } else {
                         // При ошибке генерируем IRQ сразу
                         i8272_irq();
@@ -206,7 +206,7 @@ __force_inline static void i8272_writeport(const uint16_t port_number, const uin
                     const auto cylinder = command[2];
 
                     response[0] = drive;
-                    if (drive > 0)
+                    if (drive > 1)
                         response[0] |= 1 << 6 | 1 << 4; // abnormal termination/equipment check
                     else {
                         presentCylinder[drive] = cylinder;
@@ -239,7 +239,7 @@ __force_inline static void i8272_writeport(const uint16_t port_number, const uin
                     assert(mfm);
 
                     // prepare for write
-                    const bool failed = drive > 0;
+                    const bool failed = drive > 1;
 
                     response[0] = drive | head << 2;
 
@@ -260,7 +260,7 @@ __force_inline static void i8272_writeport(const uint16_t port_number, const uin
                         // IRQ6 будет сгенерирован автоматически при завершении передачи
                         // const uint32_t size = endOfTrack * FDD_SECTOR_SIZE;
                         const uint32_t offset = ((cylinder * FDD_HEADS + head) * FDD_SECTORS_PER_TRACK + (sector - 1)) * FDD_SECTOR_SIZE;
-                        dma_start_transfer(2, 0x11, &FLOPPY, offset, 6);
+                        dma_start_transfer(2, 0x11, &FLOPPY, offset, drive, 6);
                     } else {
                         // При ошибке генерируем IRQ сразу
                         i8272_irq();
@@ -285,7 +285,7 @@ __force_inline static void i8272_writeport(const uint16_t port_number, const uin
                     const int drive = command[1] & 3;
 
                     response[0] = drive;
-                    if (drive > 0)
+                    if (drive > 1)
                         response[0] |= 1 << 6 | 1 << 4; // abnormal termination/equipment check
                     else {
                         presentCylinder[drive] = 0;

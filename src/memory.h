@@ -1,12 +1,9 @@
 #pragma once
 #include "common.h"
-#include <stdio.h>
 
 // ============================================================================
 // External Memory Arrays
 // ============================================================================
-extern uint8_t RAM[];        // Main RAM (defined in main.c)
-extern uint8_t VIDEORAM[];   // Video RAM (defined in main.c)
 extern uint8_t BIOS[];
 
 // Универсальная функция записи с поддержкой BHE (8/16-bit operations)
@@ -42,7 +39,7 @@ __force_inline static uint16_t memory_read(const uint32_t address) {
     }
 
     if (address == 0xFC000) {
-        return 0xFF21;
+        return 0x21;
     }
 
     if (address >= BIOS_ROM_BASE) {

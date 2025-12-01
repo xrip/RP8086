@@ -192,6 +192,7 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
             } else {
                 if (tga_index == 3) {
                     cga.port3DA_tandy = data;
+                    cga.updated = true;
                 }
                 // else if (tga_index & 0x10) {
                 // graphics_set_palette(tga_index & 0xF, cga_palette[data & 0xF]);
@@ -201,9 +202,12 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
             tga_flip_flop ^= 1;
             return;
         }
-        // case 0x3DE: {
+         case 0x3DE: {
+            cga.port3DA_tandy = data;
+            cga.updated = true;
+            // Why Prince Writes here instead of 3da???
             // printf("3DE: Tandy video write %x %x\n", tga_index, data);
-        // }
+        }
         case 0x3F2: case 0x3F5: {
             return i8272_writeport(address, data);
         }
