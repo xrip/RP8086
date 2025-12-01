@@ -27,6 +27,7 @@ const struct pio_program pio_program_VGA = {
 };
 
 // --- Display geometry / timing (renamed) ---
+
 constexpr int total_scanlines = 525; // previously N_lines_total
 constexpr int visible_scanlines = 480; // previously N_lines_visible
 constexpr int vsync_start_line = 490; // previously line_VS_begin
@@ -36,10 +37,10 @@ constexpr int vsync_end_line = 491; // previously line_VS_end
 constexpr int pixel_clock = 25'175'000; // 25.175Mhz
 
 constexpr int hsync_offset_bytes = 328 * 2; // HS_SHIFT
-constexpr int hsync_pulse_width_bytes = 48 * 2; // HS_SIZE
+constexpr int hsync_pulse_width_bytes = 48 * 2; // HS_SIZE // Back porch
 constexpr int scanline_bytes = 400 * 2;
 
-#ifdef VGA_CSYNC
+#if defined(VGA_CSYNC)
 constexpr int VGA_PINS = 7;
 constexpr int picture_hshift_bytes = scanline_bytes - hsync_offset_bytes + 12;
 #else
@@ -433,7 +434,7 @@ void graphics_init() {
     dma_channel_configure(
         dma_ctrl_channel,
         &ctrl_cfg,
-        &dma_hw->ch[dma_data_channel].read_addr, // write address (point to read_addr of data channel)
+        &dma_hw->ch[dma_data_channel].read_addr, // write address (point to read_addr of a data channel)
         &scanline_buffers[VBLANK], // read address (pattern pointer)
         1,
         false);
@@ -459,7 +460,7 @@ void graphics_init() {
         textmode_palette_lut[i * 4 + 3] = c1 | (c1 << 8);
     }
 
-    // assign buffer pointers into single large array
+    // assign buffer pointers into a single large array
     for (int i = 0; i < SCANLINE_BUFFERS; i++) {
         scanline_buffers[i] = &scanline_buffer_mem[i * (scanline_bytes / 4)];
     }
