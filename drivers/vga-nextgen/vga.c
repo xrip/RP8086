@@ -1,5 +1,4 @@
 #include <hardware/dma.h>
-#include <hardware/dma.h>
 #include <hardware/irq.h>
 #include <hardware/pio.h>
 #include <arm_acle.h>
@@ -27,23 +26,25 @@ const struct pio_program pio_program_VGA = {
     .origin = -1,
 };
 
-// --- timing/template constants and buffer setup ---
-constexpr int hsync_offset_pixels = 328 * 2; // HS_SHIFT
-constexpr int hsync_pulse_width = 48 * 2; // HS_SIZE
-constexpr int scanline_bytes = 400 * 2;
-
 // --- Display geometry / timing (renamed) ---
 constexpr int total_scanlines = 525; // previously N_lines_total
 constexpr int visible_scanlines = 480; // previously N_lines_visible
 constexpr int vsync_start_line = 490; // previously line_VS_begin
 constexpr int vsync_end_line = 491; // previously line_VS_end
 
+// --- timing/template constants and buffer setup ---
+constexpr int pixel_clock = 25'175'000; // 25.175Mhz
+
+constexpr int hsync_offset_bytes = 328 * 2; // HS_SHIFT
+constexpr int hsync_pulse_width_bytes = 48 * 2; // HS_SIZE
+constexpr int scanline_bytes = 400 * 2;
+
 #ifdef VGA_CSYNC
 constexpr int VGA_PINS = 7;
-constexpr int picture_hshift_pixels = scanline_bytes - hsync_offset_pixels + 12;
+constexpr int picture_hshift_bytes = scanline_bytes - hsync_offset_bytes + 12;
 #else
 constexpr int VGA_PINS = 8;
-constexpr int picture_hshift_pixels = scanline_bytes - hsync_offset_pixels;
+constexpr int picture_hshift_pixels = scanline_bytes - hsync_offset_bytes;
 #endif
 
 // scanline_buffers: [0]=blank, [1]=vsync, [2]=image
@@ -104,7 +105,6 @@ void __time_critical_func() vga_scanline_dma() {
     // choose odd/even image buffer pointer
     uint16_t y = scanline;
 
-
     // If line index beyond prepared image area — fall back to blank
     if (unlikely(scanline >= mc6845.r.v_displayed * (mc6845.r.max_scanline_addr + 1) * 2)) {
         dma_channel_set_read_addr(dma_ctrl_channel, &scanline_buffers[VBLANK], false);
@@ -121,7 +121,7 @@ void __time_critical_func() vga_scanline_dma() {
         y >>= 1; // 200 logical lines
     }
     uint32_t **scanline_output_ptr = &scanline_buffers[IMAGE];
-    uint32_t *__restrict scanline_output_32 = *scanline_output_ptr + picture_hshift_pixels / 4;
+    uint32_t *__restrict scanline_output_32 = *scanline_output_ptr + picture_hshift_bytes / 4;
 
 
     // activate output for visible lines
@@ -355,7 +355,7 @@ void __time_critical_func() vga_scanline_dma() {
 }
 
 void graphics_set_bgcolor(const uint32_t color888) {
-    uint32_t *scanline_output_ptr = scanline_buffers[VBLANK] + picture_hshift_pixels / 4;
+    uint32_t *scanline_output_ptr = scanline_buffers[VBLANK] + picture_hshift_bytes / 4;
     const uint32_t color = ((palette[color888] << 16) | palette[color888]) & 0x3f3f3f3f | 0xc0c0c0c0;
     for (int i = 160; i--;) {
         *scanline_output_ptr++ = color;
@@ -378,9 +378,10 @@ void graphics_set_palette(const uint8_t index, const uint32_t color) {
 // -----------------------------------------------------------------------------
 void graphics_init() {
     // --- initialize PIO ---
+    // On RP2350B
     pio_set_gpio_base(PIO_VGA, 16);
     const uint offset = pio_add_program(PIO_VGA, &pio_program_VGA);
-    const uint sm = pio_claim_unused_sm(PIO_VGA, true);;
+    const uint sm = pio_claim_unused_sm(PIO_VGA, true);
 
     for (int i = 0; i < VGA_PINS; i++) {
         gpio_init(VGA_BASE_PIN + i);
@@ -399,6 +400,7 @@ void graphics_init() {
 
     pio_sm_init(PIO_VGA, sm, offset, &cfg);
     pio_sm_set_enabled(PIO_VGA, sm, true);
+    pio_sm_set_clkdiv(PIO_VGA, sm, clock_get_hz(clk_sys) / pixel_clock); // set PIO clock divider approximately for 25.175MHz pixel clock
 
     // --- initialize DMA channels ---
     dma_ctrl_channel = dma_claim_unused_channel(true);
@@ -457,11 +459,6 @@ void graphics_init() {
         textmode_palette_lut[i * 4 + 3] = c1 | (c1 << 8);
     }
 
-
-    // set PIO clock divider approximately for 25.175MHz pixel clock
-    const uint32_t div32 = (uint32_t) (clock_get_hz(clk_sys) / 25175000 * (1 << 16) + 0.0);
-    PIO_VGA->sm[sm].clkdiv = div32; // & 0xfffff000;
-
     // assign buffer pointers into single large array
     for (int i = 0; i < SCANLINE_BUFFERS; i++) {
         scanline_buffers[i] = &scanline_buffer_mem[i * (scanline_bytes / 4)];
@@ -491,12 +488,12 @@ void graphics_init() {
     memset(base_ptr, tmpl_active_video, scanline_bytes);
 
     // выровненная синхра вначале
-    memset(base_ptr, tmpl_hsync, hsync_pulse_width);
+    memset(base_ptr, tmpl_hsync, hsync_pulse_width_bytes);
 
     // кадровая синхра (vsync)
     base_ptr = scanline_buffers[VSYNC];
     memset(base_ptr, tmpl_vsync, scanline_bytes);
-    memset(base_ptr, tmpl_video_hv_sync, hsync_pulse_width);
+    memset(base_ptr, tmpl_video_hv_sync, hsync_pulse_width_bytes);
 
     // заготовки для строк с изображением (copy blank template)
     base_ptr = scanline_buffers[IMAGE];
