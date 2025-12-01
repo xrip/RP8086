@@ -118,6 +118,7 @@ typedef struct {
     uint8_t data_source_type;
     const void *data_source;  // Источник данных (для device→memory)
     uint32_t data_offset;  // Смещениен в источнике
+    uint8_t file_index;        // Индекс файла для FILE_READ/FILE_WRITE (0=fdd.img, 1=fdd1.img)
     uint8_t irq;               // IRQ для генерации при завершении (0 = нет IRQ)
     bool transfer_active;             // Флаг активной передачи
 } dma_channel_s;

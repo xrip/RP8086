@@ -128,7 +128,7 @@ VER_NAME		EQU	'GLaBIOS'
 VER_NUM		EQU	'0.4.1'		; (max 5 chars)
 	ENDIF
 	IFNDEF VER_DATE
-VER_DATE		EQU	'09/12/25'		; must be MM/DD/YY per Intel CSM
+VER_DATE		EQU	'12/01/25'		; must be MM/DD/YY per Intel CSM
 	ENDIF
 COPY_YEAR		EQU	'2022-25'		; Copyright year range
 
