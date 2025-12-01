@@ -1,21 +1,16 @@
-#include "graphics.h"
-#include "hardware/dma.h"
-#include "hardware/irq.h"
-#include "hardware/pio.h"
-#include <string.h>
+#include <hardware/dma.h>
+#include <hardware/dma.h>
+#include <hardware/irq.h>
+#include <hardware/pio.h>
 #include <arm_acle.h>
-#include <common.h>
+
+#include "graphics.h"
+#include "common.h"
 
 #define VGA_CSYNC
-#ifdef VGA_CSYNC
-constexpr uint8_t VGA_PINS = 7;
-#else
-constexpr uint8_t VGA_PINS = 8;
-#endif
 
 // --- external hardware / memory references ---
 extern uint8_t port3DA;
-extern uint8_t VIDEORAM[];
 extern mc6845_s mc6845;
 extern cga_s cga;
 
@@ -32,37 +27,40 @@ const struct pio_program pio_program_VGA = {
     .origin = -1,
 };
 
-// --- Scanline buffer storage (aligned) ---
-// scanline_buffers: [0]=blank, [1]=vsync, [2]=odd image, [3]=even image
-enum {
-    BLANK,
-    VSYNC,
-    ODD,
-    EVEN
-};
-
-static uint32_t *scanline_buffers[4] __attribute__((aligned(4))) = {0};
-static uint32_t scanline_buffer_mem[(400 * 2 * 4) / 4] __attribute__((aligned(32)));
-
-static int pio_sm_vga = -1;
+// --- timing/template constants and buffer setup ---
+constexpr int hsync_offset_pixels = 328 * 2; // HS_SHIFT
+constexpr int hsync_pulse_width = 48 * 2; // HS_SIZE
+constexpr int scanline_bytes = 400 * 2;
 
 // --- Display geometry / timing (renamed) ---
-static int total_scanlines = 525; // previously N_lines_total
-static int visible_scanlines = 480; // previously N_lines_visible
-static int vsync_start_line = 490; // previously line_VS_begin
-static int vsync_end_line = 491; // previously line_VS_end
-static int picture_hshift_pixels = 0; // previously shift_picture
+constexpr int total_scanlines = 525; // previously N_lines_total
+constexpr int visible_scanlines = 480; // previously N_lines_visible
+constexpr int vsync_start_line = 490; // previously line_VS_begin
+constexpr int vsync_end_line = 491; // previously line_VS_end
+
+#ifdef VGA_CSYNC
+constexpr int VGA_PINS = 7;
+constexpr int picture_hshift_pixels = scanline_bytes - hsync_offset_pixels + 12;
+#else
+constexpr int VGA_PINS = 8;
+constexpr int picture_hshift_pixels = scanline_bytes - hsync_offset_pixels;
+#endif
+
+// scanline_buffers: [0]=blank, [1]=vsync, [2]=image
+enum { VBLANK, VSYNC, IMAGE };
+#define SCANLINE_BUFFERS 3
+static uint32_t *scanline_buffers[SCANLINE_BUFFERS] __attribute__((aligned(4))) = {0};
+static uint32_t scanline_buffer_mem[scanline_bytes * SCANLINE_BUFFERS] __attribute__((aligned(32)));
 
 // --- DMA / PIO channels ---
-static int dma_ctrl_chan;
-static int dma_data_chan;
-
-// --- Framebuffer / palette ---
-static uint8_t *framebuffer_ptr = nullptr; // previously graphics_framebuffer
+static int dma_ctrl_channel;
+static int dma_data_channel;
 
 static uint16_t palette[256] __attribute__((aligned(4)));
+// 2K text palette expanded for fast lookup: 256 * 4 entries
+static uint16_t textmode_palette_lut[256 * 4] __attribute__((aligned(4)));
 
-static constexpr uint16_t textmode_palette[16] __attribute__((aligned(4))) = {
+constexpr uint16_t textmode_palette[16] __attribute__((aligned(4))) = {
     0b000000 & 0x3f | 0xc0,
     0b000001 & 0x3f | 0xc0,
     0b000100 & 0x3f | 0xc0,
@@ -81,68 +79,50 @@ static constexpr uint16_t textmode_palette[16] __attribute__((aligned(4))) = {
     0b111111 & 0x3f | 0xc0,
 };
 
-// 2K text palette expanded for fast lookup: 256 * 4 entries
-static uint16_t textmode_palette_lut[256 * 4] __attribute__((aligned(4)));
-
 enum graphics_mode_t graphics_mode;
 
-void graphics_set_bgcolor(const uint32_t color888) {
-    uint32_t *scanline_output_ptr = scanline_buffers[BLANK] + picture_hshift_pixels / 4;
-    const uint32_t color = ((palette[color888] << 16) | palette[color888]) & 0x3f3f3f3f | 0xc0c0c0c0;
-    for (int i = 160; i--;) {
-        *scanline_output_ptr++ = color;
-    }
-}
-
 void __time_critical_func() vga_scanline_dma() {
-    static uint32_t frame_counter = 0; // previously frame_number
-    static uint32_t current_scanline = 0; // previously screen_line
+    static uint32_t scanline = 0; // previously screen_line
 
     // acknowledge interrupt for control channel
-    dma_hw->ints0 = 1u << dma_ctrl_chan;
+    dma_hw->ints0 = 1u << dma_ctrl_channel;
 
     // advance scanline/frame counters
-    current_scanline++;
-    if (unlikely(current_scanline == total_scanlines)) {
-        current_scanline = 0;
-        frame_counter++;
+    scanline++;
+    if (unlikely(scanline == total_scanlines)) {
+        scanline = 0;
     }
 
     // If outside visible area - mark output as finished
-    if (unlikely(current_scanline >= visible_scanlines)) {
-        const int is_vsync = (current_scanline >= (uint32_t) vsync_start_line && current_scanline <= (uint32_t) vsync_end_line) ? VSYNC : BLANK;
-        dma_channel_set_read_addr(dma_ctrl_chan, &scanline_buffers[is_vsync], false);
+    if (unlikely(scanline >= visible_scanlines)) {
+        const int is_vsync = (scanline >= vsync_start_line && scanline <= vsync_end_line) ? VSYNC : VBLANK;
+        dma_channel_set_read_addr(dma_ctrl_channel, &scanline_buffers[is_vsync], false);
         port3DA = 9;
         return;
     }
 
     // choose odd/even image buffer pointer
-    uint32_t y = current_scanline;
-    unsigned int odd_even = y & 1;
+    uint16_t y = scanline;
 
-
-    // Non-interlace: skip odd sublines and fold y
-    if (likely((mc6845.r.interlace_mode & 1) == 0)) {
-        if (odd_even) {
-            port3DA = 1;
-            return;
-        }
-        y >>= 1; // 200 logical lines
-    } else {
-        // Зафиксируем первый буфер
-        odd_even = 0;
-    }
-
-
-    uint32_t **scanline_output_ptr = &scanline_buffers[2 + odd_even];
-    uint32_t *__restrict scanline_output_32 = *scanline_output_ptr + picture_hshift_pixels / 4;
 
     // If line index beyond prepared image area — fall back to blank
-    if (unlikely(current_scanline >= mc6845.r.v_displayed * (mc6845.r.max_scanline_addr + 1) * 2)) {
-        dma_channel_set_read_addr(dma_ctrl_chan, &scanline_buffers[BLANK], false);
+    if (unlikely(scanline >= mc6845.r.v_displayed * (mc6845.r.max_scanline_addr + 1) * 2)) {
+        dma_channel_set_read_addr(dma_ctrl_channel, &scanline_buffers[VBLANK], false);
         port3DA = 1;
         return;
     }
+    // Non-interlace: skip odd sublines and fold y
+    if (likely((mc6845.r.interlace_mode & 1) == 0)) {
+        if (y & 1) {
+            port3DA = 1;
+            return;
+        }
+        // is_even = 2;
+        y >>= 1; // 200 logical lines
+    }
+    uint32_t **scanline_output_ptr = &scanline_buffers[IMAGE];
+    uint32_t *__restrict scanline_output_32 = *scanline_output_ptr + picture_hshift_pixels / 4;
+
 
     // activate output for visible lines
     port3DA = 0;
@@ -370,14 +350,18 @@ void __time_critical_func() vga_scanline_dma() {
         }
     }
 
-    dma_channel_set_read_addr(dma_ctrl_chan, scanline_output_ptr, false);
+    dma_channel_set_read_addr(dma_ctrl_channel, scanline_output_ptr, false);
     port3DA = 1; // no more data shown
 }
 
-// -----------------------------------------------------------------------------
-void graphics_set_buffer(uint8_t *buffer, const uint16_t width, const uint16_t height) {
-    framebuffer_ptr = buffer;
+void graphics_set_bgcolor(const uint32_t color888) {
+    uint32_t *scanline_output_ptr = scanline_buffers[VBLANK] + picture_hshift_pixels / 4;
+    const uint32_t color = ((palette[color888] << 16) | palette[color888]) & 0x3f3f3f3f | 0xc0c0c0c0;
+    for (int i = 160; i--;) {
+        *scanline_output_ptr++ = color;
+    }
 }
+
 
 // -----------------------------------------------------------------------------
 void graphics_set_palette(const uint8_t index, const uint32_t color) {
@@ -396,8 +380,7 @@ void graphics_init() {
     // --- initialize PIO ---
     pio_set_gpio_base(PIO_VGA, 16);
     const uint offset = pio_add_program(PIO_VGA, &pio_program_VGA);
-    pio_sm_vga = pio_claim_unused_sm(PIO_VGA, true);
-    const uint sm = pio_sm_vga;
+    const uint sm = pio_claim_unused_sm(PIO_VGA, true);;
 
     for (int i = 0; i < VGA_PINS; i++) {
         gpio_init(VGA_BASE_PIN + i);
@@ -418,38 +401,38 @@ void graphics_init() {
     pio_sm_set_enabled(PIO_VGA, sm, true);
 
     // --- initialize DMA channels ---
-    dma_ctrl_chan = dma_claim_unused_channel(true);
-    dma_data_chan = dma_claim_unused_channel(true);
+    dma_ctrl_channel = dma_claim_unused_channel(true);
+    dma_data_channel = dma_claim_unused_channel(true);
 
     // main data channel config
-    dma_channel_config data_cfg = dma_channel_get_default_config(dma_data_chan);
+    dma_channel_config data_cfg = dma_channel_get_default_config(dma_data_channel);
     channel_config_set_transfer_data_size(&data_cfg, DMA_SIZE_32);
     channel_config_set_read_increment(&data_cfg, true);
     channel_config_set_write_increment(&data_cfg, false);
 
     channel_config_set_dreq(&data_cfg, (PIO_VGA == pio0 ? DREQ_PIO0_TX0 : DREQ_PIO1_TX0) + sm);
-    channel_config_set_chain_to(&data_cfg, dma_ctrl_chan);
+    channel_config_set_chain_to(&data_cfg, dma_ctrl_channel);
 
     dma_channel_configure(
-        dma_data_chan,
+        dma_data_channel,
         &data_cfg,
         &PIO_VGA->txf[sm], // write address (PIO TX FIFO)
-        scanline_buffers[BLANK], // read address (will be updated)
-        600 / 4,
+        scanline_buffers[VBLANK], // read address (will be updated)
+        scanline_bytes / 4,
         false);
 
     // control channel config
-    dma_channel_config ctrl_cfg = dma_channel_get_default_config(dma_ctrl_chan);
+    dma_channel_config ctrl_cfg = dma_channel_get_default_config(dma_ctrl_channel);
     channel_config_set_transfer_data_size(&ctrl_cfg, DMA_SIZE_32);
     channel_config_set_read_increment(&ctrl_cfg, false);
     channel_config_set_write_increment(&ctrl_cfg, false);
-    channel_config_set_chain_to(&ctrl_cfg, dma_data_chan);
+    channel_config_set_chain_to(&ctrl_cfg, dma_data_channel);
 
     dma_channel_configure(
-        dma_ctrl_chan,
+        dma_ctrl_channel,
         &ctrl_cfg,
-        &dma_hw->ch[dma_data_chan].read_addr, // write address (point to read_addr of data channel)
-        &scanline_buffers[BLANK], // read address (pattern pointer)
+        &dma_hw->ch[dma_data_channel].read_addr, // write address (point to read_addr of data channel)
+        &scanline_buffers[VBLANK], // read address (pattern pointer)
         1,
         false);
 
@@ -458,10 +441,10 @@ void graphics_init() {
 
     // IRQ setup
     irq_set_exclusive_handler(VGA_DMA_IRQ, vga_scanline_dma);
-    dma_channel_set_irq0_enabled(dma_ctrl_chan, true);
+    dma_channel_set_irq0_enabled(dma_ctrl_channel, true);
     irq_set_enabled(VGA_DMA_IRQ, true);
 
-    dma_start_channel_mask(1u << dma_data_chan);
+    dma_start_channel_mask(1u << dma_data_channel);
 
     // --- prepare text palette expanded table ---
     for (int i = 0; i < 256; i++) {
@@ -474,30 +457,18 @@ void graphics_init() {
         textmode_palette_lut[i * 4 + 3] = c1 | (c1 << 8);
     }
 
-    // --- timing/template constants and buffer setup ---
-    constexpr uint8_t tmpl_active_video = 0b11000000; // TMPL_LINE8
-    constexpr int hsync_offset_pixels = 328 * 2; // HS_SHIFT
-    constexpr int hsync_pulse_width = 48 * 2; // HS_SIZE
 
-    constexpr int scanline_bytes = 400 * 2;
-#ifdef VGA_CSYNC
-    picture_hshift_pixels = scanline_bytes - hsync_offset_pixels + 12;
-#else
-    picture_hshift_pixels = scanline_bytes - hsync_offset_pixels;
-#endif
     // set PIO clock divider approximately for 25.175MHz pixel clock
     const uint32_t div32 = (uint32_t) (clock_get_hz(clk_sys) / 25175000 * (1 << 16) + 0.0);
-    PIO_VGA->sm[pio_sm_vga].clkdiv = div32; // & 0xfffff000;
-
-    // tell data DMA how many 32-bit words per scanline
-    dma_channel_set_trans_count(dma_data_chan, scanline_bytes / 4, false);
+    PIO_VGA->sm[sm].clkdiv = div32; // & 0xfffff000;
 
     // assign buffer pointers into single large array
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < SCANLINE_BUFFERS; i++) {
         scanline_buffers[i] = &scanline_buffer_mem[i * (scanline_bytes / 4)];
     }
 
     // prepare templates
+    constexpr uint8_t tmpl_active_video  = 0b11000000; // TMPL_LINE8
 #ifdef VGA_CSYNC
     // --- CSYNC MODE (VHBBGGRR) ---
     // HSync (bit 6) несет композитный сигнал.
@@ -506,17 +477,15 @@ void graphics_init() {
     constexpr uint8_t tmpl_hsync         = 0b10000000; // Обычная строка: импульс HSync = 0 (Bit6=0, Bit7=1)
     constexpr uint8_t tmpl_vsync         = 0b10000000; // VSync строка: фон = 0 (Bit6=0, Bit7=1)
     constexpr uint8_t tmpl_video_hv_sync = 0b11000000; // VSync строка: импульс (serration) = 1 (Bit6=1, Bit7=1)
-    // tmpl_active_video остается 0b11000000 (Bit6=1, Bit7=1)
 #else
     // --- STANDARD VGA MODE (VHBBGGRR) ---
     const uint8_t tmpl_hsync = tmpl_active_video ^ 0b01000000; // 10... (V=1, H=0)
     const uint8_t tmpl_vsync = tmpl_active_video ^ 0b10000000; // 01... (V=0, H=1)
     const uint8_t tmpl_video_hv_sync = tmpl_active_video ^ 0b11000000; // 00... (V=0, H=0)
-
 #endif
 
     // base pointer to buffer memory as bytes
-    auto base_ptr = (uint8_t *) scanline_buffers[BLANK];
+    auto base_ptr = scanline_buffers[VBLANK];
 
     // пустая строка (active video background)
     memset(base_ptr, tmpl_active_video, scanline_bytes);
@@ -525,15 +494,17 @@ void graphics_init() {
     memset(base_ptr, tmpl_hsync, hsync_pulse_width);
 
     // кадровая синхра (vsync)
-    base_ptr = (uint8_t *) scanline_buffers[VSYNC];
+    base_ptr = scanline_buffers[VSYNC];
     memset(base_ptr, tmpl_vsync, scanline_bytes);
     memset(base_ptr, tmpl_video_hv_sync, hsync_pulse_width);
 
     // заготовки для строк с изображением (copy blank template)
-    base_ptr = (uint8_t *) scanline_buffers[ODD];
+    base_ptr = scanline_buffers[IMAGE];
+    memcpy(base_ptr, scanline_buffers[VBLANK], scanline_bytes);
+    /*
+    base_ptr = scanline_buffers[EVEN];
     memcpy(base_ptr, scanline_buffers[BLANK], scanline_bytes);
-    base_ptr = (uint8_t *) scanline_buffers[EVEN];
-    memcpy(base_ptr, scanline_buffers[BLANK], scanline_bytes);
+    */
 }
 
 // -----------------------------------------------------------------------------
