@@ -1,4 +1,13 @@
 #include <string.h>
+
+// Отладочный вывод HDD
+//#define DEBUG_HDD
+#if defined(DEBUG_HDD)
+#define debug_log(...) printf(__VA_ARGS__)
+#else
+#define debug_log(...)
+#endif
+
 // Регистры
 #define IDE_REG_DATA        0
 #define IDE_REG_ERROR       1 // Read
@@ -68,12 +77,12 @@ static void cmd_identify() {
         // Получаем размер файла в секторах
         uint32_t file_size = (uint32_t) f_size(ide.disk_image);
         total_sectors = file_size / 512;
-        printf("IDE: Disk image size = %lu bytes (%lu sectors)\n", file_size, total_sectors);
+        debug_log("IDE: Disk image size = %lu bytes (%lu sectors)\n", file_size, total_sectors);
     }
     // ЗАЩИТА ОТ ERROR 1h: Диск не может быть нулем или слишком маленьким
     // Используем фиксированную геометрию: 1024 × 16 × 17 = 278528 sectors
     if (total_sectors < 278528) {
-        printf("IDE: File too small, using fixed geometry: 278528 sectors\n");
+        debug_log("IDE: File too small, using fixed geometry: 278528 sectors\n");
         total_sectors = 278528;
     }
 
@@ -125,7 +134,7 @@ static void cmd_read_sector() {
     ide.regs[IDE_REG_STATUS] = IDE_SR_BSY;
 
     if (!ide.disk_image) {
-        printf("IDE: No disk image!\n");
+        debug_log("IDE: No disk image!\n");
         ide.regs[IDE_REG_ERROR] = 0x04; // ABRT
         ide.regs[IDE_REG_STATUS] = IDE_SR_ERR | IDE_SR_RDY | IDE_SR_DSC;
         return;
@@ -134,7 +143,7 @@ static void cmd_read_sector() {
     uint32_t lba = ide_get_lba();
 
     if (f_lseek(ide.disk_image, lba * 512) != FR_OK) {
-        printf("IDE: Seek error LBA=%lu\n", lba);
+        debug_log("IDE: Seek error LBA=%lu\n", lba);
         ide.regs[IDE_REG_ERROR] = 0x10; // IDNF
         ide.regs[IDE_REG_STATUS] = IDE_SR_ERR | IDE_SR_RDY | IDE_SR_DSC;
         return;
@@ -145,7 +154,7 @@ static void cmd_read_sector() {
 
     if (res != FR_OK) {
         // Ошибка чтения
-        printf("IDE: Read error res=%d cnt=%u\n", res, read_cnt);
+        debug_log("IDE: Read error res=%d cnt=%u\n", res, read_cnt);
         ide.regs[IDE_REG_ERROR] = 0x40; // UNC
         ide.regs[IDE_REG_STATUS] = IDE_SR_ERR | IDE_SR_RDY | IDE_SR_DSC;
         return;
@@ -158,7 +167,7 @@ static void cmd_read_sector() {
 
     // Логируем только важные секторы (MBR и boot sector)
     if (lba == 0 || lba == 1 || lba == 17) {
-        printf("IDE: Read OK, first 16 bytes: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X\n",
+        debug_log("IDE: Read OK, first 16 bytes: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X\n",
                ide.sector_buffer[0], ide.sector_buffer[1], ide.sector_buffer[2], ide.sector_buffer[3],
                ide.sector_buffer[4], ide.sector_buffer[5], ide.sector_buffer[6], ide.sector_buffer[7],
                ide.sector_buffer[8], ide.sector_buffer[9], ide.sector_buffer[10], ide.sector_buffer[11],
@@ -169,7 +178,7 @@ static void cmd_read_sector() {
     uint8_t count = ide.regs[IDE_REG_SEC_COUNT];
     ide.sectors_remaining = (count == 0) ? 1 : count;
 
-    printf("IDE: cmd_read_sector - sectors_remaining=%u\n", ide.sectors_remaining);
+    debug_log("IDE: cmd_read_sector - sectors_remaining=%u\n", ide.sectors_remaining);
 
     // УСПЕХ: Данные готовы
     ide.regs[IDE_REG_STATUS] = IDE_SR_DRQ | IDE_SR_RDY | IDE_SR_DSC;
@@ -184,38 +193,38 @@ static void cmd_write_sector() {
     uint8_t count = ide.regs[IDE_REG_SEC_COUNT];
     ide.sectors_remaining = (count == 0) ? 1 : count; // 0 обычно означает 1 сектор
 
-    printf("IDE: cmd_write_sector - sectors_remaining=%u\n", ide.sectors_remaining);
+    debug_log("IDE: cmd_write_sector - sectors_remaining=%u\n", ide.sectors_remaining);
 }
 
 static void flush_buffer() {
     if (!ide.disk_image) {
-        printf("IDE: flush_buffer - no disk image!\n");
+        printf("IDE: flush_buffer - no disk image!\n"); // Критическая ошибка
         return;
     }
 
     uint32_t lba = ide_get_lba();
-    printf("IDE: flush_buffer LBA=%lu\n", lba);
+    debug_log("IDE: flush_buffer LBA=%lu\n", lba);
 
     FRESULT res = f_lseek(ide.disk_image, lba * 512);
     if (res != FR_OK) {
-        printf("IDE: flush_buffer seek error res=%d\n", res);
+        printf("IDE: flush_buffer seek error res=%d\n", res); // Критическая ошибка
         return;
     }
 
     UINT bw = 0;
     res = f_write(ide.disk_image, ide.sector_buffer, 512, &bw);
     if (res != FR_OK || bw != 512) {
-        printf("IDE: flush_buffer write error res=%d bw=%u\n", res, bw);
+        printf("IDE: flush_buffer write error res=%d bw=%u\n", res, bw); // Критическая ошибка
         return;
     }
 
     res = f_sync(ide.disk_image);
     if (res != FR_OK) {
-        printf("IDE: flush_buffer sync error res=%d\n", res);
+        printf("IDE: flush_buffer sync error res=%d\n", res); // Критическая ошибка
         return;
     }
 
-    printf("IDE: flush_buffer OK - wrote %u bytes\n", bw);
+    debug_log("IDE: flush_buffer OK - wrote %u bytes\n", bw);
 }
 
 // --- Главный обработчик команд ---
@@ -233,7 +242,7 @@ void handle_command(uint8_t cmd) {
             cmd_identify();
             // Логируем важные поля IDENTIFY
             uint16_t *wbuf = (uint16_t *) ide.sector_buffer;
-            printf("IDE: IDENTIFY - Cyl=%u Head=%u Sec=%u TotalSec=%lu\n",
+            debug_log("IDE: IDENTIFY - Cyl=%u Head=%u Sec=%u TotalSec=%lu\n",
                    wbuf[1], wbuf[3], wbuf[6],
                    (uint32_t)wbuf[60] | ((uint32_t)wbuf[61] << 16));
             break;
@@ -245,12 +254,12 @@ void handle_command(uint8_t cmd) {
             // Логируем только каждую 1000-ю операцию или важные секторы
             if (lba < 100 || (read_count % 1000) == 0) {
                 if (ide.regs[IDE_REG_DEVICE] & 0x40) {
-                    printf("IDE: READ #%lu LBA=%lu (LBA mode)\n", read_count, lba);
+                    debug_log("IDE: READ #%lu LBA=%lu (LBA mode)\n", read_count, lba);
                 } else {
                     uint16_t cyl = ide.regs[IDE_REG_LBA_MID] | ((uint16_t)ide.regs[IDE_REG_LBA_HIGH] << 8);
                     uint8_t head = ide.regs[IDE_REG_DEVICE] & 0x0F;
                     uint8_t sector = ide.regs[IDE_REG_LBA_LOW];
-                    printf("IDE: READ #%lu CHS=%u/%u/%u → LBA=%lu\n", read_count, cyl, head, sector, lba);
+                    debug_log("IDE: READ #%lu CHS=%u/%u/%u → LBA=%lu\n", read_count, cyl, head, sector, lba);
                 }
             }
             read_count++;
@@ -261,7 +270,7 @@ void handle_command(uint8_t cmd) {
             uint32_t lba = ide_get_lba();
             uint8_t count = ide.regs[IDE_REG_SEC_COUNT];
             if (count == 0) count = 1; // 0 обычно означает 1 сектор для WRITE
-            printf("IDE: WRITE LBA=%lu Count=%u\n", lba, count);
+            debug_log("IDE: WRITE LBA=%lu Count=%u\n", lba, count);
             cmd_write_sector();
             break;
         }
@@ -272,7 +281,7 @@ void handle_command(uint8_t cmd) {
             uint8_t count_reg = ide.regs[IDE_REG_SEC_COUNT];
             uint16_t count = (count_reg == 0) ? 256 : count_reg; // 0 означает 256 секторов
 
-            printf("IDE: READ VERIFY LBA=%lu Count=%u\n", lba, count);
+            debug_log("IDE: READ VERIFY LBA=%lu Count=%u\n", lba, count);
 
             // Проверяем что сектор в пределах диска
             // Получаем размер из disk_image
@@ -283,7 +292,7 @@ void handle_command(uint8_t cmd) {
             if (max_lba == 0) max_lba = 277776; // Fallback на геометрию
 
             if (lba + count > max_lba) {
-                printf("IDE: READ VERIFY out of bounds! LBA=%lu+%u > %lu\n", lba, count, max_lba);
+                debug_log("IDE: READ VERIFY out of bounds! LBA=%lu+%u > %lu\n", lba, count, max_lba);
                 ide.regs[IDE_REG_ERROR] = 0x10; // IDNF (ID Not Found)
                 ide.regs[IDE_REG_STATUS] = IDE_SR_ERR | IDE_SR_RDY | IDE_SR_DSC;
             } else {
@@ -294,32 +303,32 @@ void handle_command(uint8_t cmd) {
         }
 
         case 0x91: // Init Params
-            printf("IDE: Init Drive Params (0x91) - Head=%u Sec=%u\n",
+            debug_log("IDE: Init Drive Params (0x91) - Head=%u Sec=%u\n",
                    ide.regs[IDE_REG_DEVICE] & 0x0F, ide.regs[IDE_REG_SEC_COUNT]);
             ide.regs[IDE_REG_STATUS] = IDE_SR_RDY | IDE_SR_DSC;
             break;
 
         case 0xEF: { // Set Features
             uint8_t feature = ide.regs[IDE_REG_FEATURES];
-            printf("IDE: Set Features (0xEF) - Feature=0x%02X\n", feature);
+            debug_log("IDE: Set Features (0xEF) - Feature=0x%02X\n", feature);
 
             // XT-IDE не поддерживает современные фичи, но притворяемся что поддерживаем
             // чтобы FORMAT не переключился в interrupt mode
             // Просто игнорируем все фичи и возвращаем SUCCESS
-            printf("IDE: Set Features 0x%02X - ignored (fake success)\n", feature);
+            debug_log("IDE: Set Features 0x%02X - ignored (fake success)\n", feature);
             ide.regs[IDE_REG_STATUS] = IDE_SR_RDY | IDE_SR_DSC;
             break;
         }
 
         case 0x70: // Seek
         case 0x10: // Recalibrate
-            printf("IDE: Seek/Recalibrate (0x%02X)\n", cmd);
+            debug_log("IDE: Seek/Recalibrate (0x%02X)\n", cmd);
             ide.regs[IDE_REG_STATUS] = IDE_SR_RDY | IDE_SR_DSC;
             break;
 
         default:
             // Неизвестная команда -> ABRT
-            printf("IDE: Unknown command 0x%02X - ABORTED\n", cmd);
+            printf("IDE: Unknown command 0x%02X - ABORTED\n", cmd); // Критическая ошибка - оставляем printf
             ide.regs[IDE_REG_ERROR] = 0x04;
             ide.regs[IDE_REG_STATUS] = IDE_SR_ERR | IDE_SR_RDY | IDE_SR_DSC;
             break;
@@ -351,12 +360,12 @@ uint8_t ide_read(uint16_t port) {
                 // Декрементируем счетчик секторов
                 if (ide.sectors_remaining > 0) {
                     ide.sectors_remaining--;
-                    printf("IDE: Multi-sector read - sectors_remaining=%u\n", ide.sectors_remaining);
+                    debug_log("IDE: Multi-sector read - sectors_remaining=%u\n", ide.sectors_remaining);
                 }
 
                 // Если еще есть секторы - загружаем следующий
                 if (ide.sectors_remaining > 0) {
-                    printf("IDE: Loading next sector for multi-sector read\n");
+                    debug_log("IDE: Loading next sector for multi-sector read\n");
 
                     // Увеличиваем LBA для следующего сектора
                     ide.regs[IDE_REG_LBA_LOW]++;
@@ -377,12 +386,12 @@ uint8_t ide_read(uint16_t port) {
                         ide.regs[IDE_REG_STATUS] = IDE_SR_DRQ | IDE_SR_RDY | IDE_SR_DSC;
                     } else {
                         // Ошибка чтения - сбрасываем DRQ
-                        printf("IDE: Multi-sector read error at LBA=%lu\n", lba);
+                        debug_log("IDE: Multi-sector read error at LBA=%lu\n", lba);
                         ide.regs[IDE_REG_STATUS] = IDE_SR_ERR | IDE_SR_RDY | IDE_SR_DSC;
                     }
                 } else {
                     // Все секторы прочитаны - сбрасываем DRQ
-                    printf("IDE: Multi-sector read complete\n");
+                    debug_log("IDE: Multi-sector read complete\n");
                     ide.regs[IDE_REG_STATUS] = IDE_SR_RDY | IDE_SR_DSC;
                 }
             } else {
@@ -404,7 +413,7 @@ uint8_t ide_read(uint16_t port) {
 
         // Логируем первые 10 чтений после каждой команды + каждое 10000-е
         if (ide.buffer_index == 0 || (status_read_count % 10000) == 0) {
-            printf("IDE: STATUS read #%lu = 0x%02X (DRQ=%d BSY=%d RDY=%d ERR=%d)\n",
+            debug_log("IDE: STATUS read #%lu = 0x%02X (DRQ=%d BSY=%d RDY=%d ERR=%d)\n",
                    status_read_count, ide.regs[port],
                    !!(ide.regs[port] & IDE_SR_DRQ),
                    !!(ide.regs[port] & IDE_SR_BSY),
@@ -427,11 +436,11 @@ void ide_write(uint16_t port, uint8_t data) {
 
             // Debug: первые 4 записи
             if (ide.buffer_index <= 8) {
-                printf("IDE: Write DATA[%d] = %02X (high=%02X)\n", ide.buffer_index - 2, data, ide.temp_high_byte);
+                debug_log("IDE: Write DATA[%d] = %02X (high=%02X)\n", ide.buffer_index - 2, data, ide.temp_high_byte);
             }
 
             if (ide.buffer_index >= 512) {
-                printf("IDE: Buffer write complete - flushing to disk LBA=%lu\n", ide_get_lba());
+                debug_log("IDE: Buffer write complete - flushing to disk LBA=%lu\n", ide_get_lba());
                 ide.buffer_index = 0;
 
                 if (ide.current_command == 0x30) {
@@ -440,12 +449,12 @@ void ide_write(uint16_t port, uint8_t data) {
                     // Декрементируем счетчик секторов
                     if (ide.sectors_remaining > 0) {
                         ide.sectors_remaining--;
-                        printf("IDE: Multi-sector write - sectors_remaining=%u\n", ide.sectors_remaining);
+                        debug_log("IDE: Multi-sector write - sectors_remaining=%u\n", ide.sectors_remaining);
                     }
 
                     // Если еще есть секторы - выставляем DRQ снова
                     if (ide.sectors_remaining > 0) {
-                        printf("IDE: Setting DRQ for next sector\n");
+                        debug_log("IDE: Setting DRQ for next sector\n");
                         ide.regs[IDE_REG_STATUS] = IDE_SR_DRQ | IDE_SR_RDY | IDE_SR_DSC;
                         // Увеличиваем LBA для следующего сектора
                         ide.regs[IDE_REG_LBA_LOW]++;
@@ -457,7 +466,7 @@ void ide_write(uint16_t port, uint8_t data) {
                         }
                     } else {
                         // Все секторы записаны - сбрасываем DRQ
-                        printf("IDE: Multi-sector write complete\n");
+                        debug_log("IDE: Multi-sector write complete\n");
                         ide.regs[IDE_REG_STATUS] = IDE_SR_RDY | IDE_SR_DSC;
                     }
                 } else {
@@ -477,7 +486,7 @@ void ide_write(uint16_t port, uint8_t data) {
     if (port == IDE_REG_COMMAND) {
         // Запись команды
         static uint32_t cmd_count = 0;
-        printf("IDE: Command #%lu = 0x%02X\n", cmd_count++, data);
+        debug_log("IDE: Command #%lu = 0x%02X\n", cmd_count++, data);
         handle_command(data);
         return; // ВАЖНО: ВЫХОДИМ! Нельзя писать data в regs[7] (Status)
     }
