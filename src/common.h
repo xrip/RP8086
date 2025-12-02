@@ -10,6 +10,8 @@
 #include <hardware/structs/qmi.h>
 #include <hardware/structs/xip.h>
 
+#include "ff.h"
+
 
 // ============================================================================
 // Compiler hints for branch prediction
@@ -196,6 +198,20 @@ typedef struct {
     bool updated;
 } cga_s;
 
+
+typedef struct {
+    FIL* disk_image;        // Указатель на файл FatFs
+    uint8_t regs[0xf];        // Регистры
+    uint8_t sector_buffer[512];
+    uint16_t buffer_index;
+
+    // Для 8-битной шины
+    uint8_t temp_high_byte;
+    bool latch_flag;
+
+    uint8_t current_command;
+    uint8_t sectors_remaining; // Для multi-sector операций (READ/WRITE)
+} ide_s;
 
 // Corrected CGA palette from https://int10h.org/blog/2022/06/ibm-5153-color-true-cga-palette/
 constexpr uint32_t cga_palette[16] = {

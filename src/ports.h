@@ -7,6 +7,7 @@
 #include "hardware/i8253.h"
 #include "hardware/i8259.h"
 #include "hardware/i8272.h"
+#include "hardware/ide.h"
 #include "hardware/uart16550.h"
 #include "graphics.h"
 #include "hardware/pwm.h"
@@ -95,6 +96,9 @@ __force_inline static uint8_t port_read8(const uint32_t address) {
         case 0x87: {
             return i8237_readpage(address);
         }
+        case 0x300 ... 0x308: {
+            return ide_read(address);
+        }
         case 0x3F4: case 0x3F5: {
             return i8272_readport(address);
         }
@@ -145,6 +149,10 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
         case 0x87: {
             return i8237_writepage(address, data);
         }
+        case 0x300 ... 0x308: {
+            return ide_write(address, data);
+        }
+
         case 0x3B0:
         case 0x3B2:
         case 0x3B4:
@@ -164,6 +172,10 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
         case 0x3D5:
         case 0x3D7:
             mc6845.registers[crtc_index] = data;
+
+            if (crtc_index < 0xc)
+                printf("MC6845 register %x (%d) : %x (%d) \n", crtc_index, crtc_index, data, data);
+
             // TODO: Сразу вычислять поинтер  VIDEORAM чтобы в потребителе не тратить времея на вычисления
             mc6845.vram_offset = (mc6845.r.start_addr_h << 8 | mc6845.r.start_addr_l) << 1;
 

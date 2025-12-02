@@ -442,6 +442,7 @@ __force_inline void debug_console(const int videomode) {
 #include <pico/stdio_semihosting.h>
 #include "hid_app.h"
 #include "tusb.h"
-#define debug_init(...) stdio_semihosting_init()
+#define debug_init(...)
+//stdio_semihosting_init()
 #define debug_console(...)
 #endif
