@@ -200,17 +200,16 @@ typedef struct {
 
 
 typedef struct {
-    FIL* disk_image;        // Указатель на файл FatFs
-    uint8_t regs[0xf];        // Регистры
+    FIL* disk_image;
+    uint8_t regs[0xF];
     uint8_t sector_buffer[512];
     uint16_t buffer_index;
 
-    // Для 8-битной шины
     uint8_t temp_high_byte;
     bool latch_flag;
 
     uint8_t current_command;
-    uint8_t sectors_remaining; // Для multi-sector операций (READ/WRITE)
+    uint8_t sectors_remaining;
 } ide_s;
 
 // Corrected CGA palette from https://int10h.org/blog/2022/06/ibm-5153-color-true-cga-palette/
