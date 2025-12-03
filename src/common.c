@@ -45,9 +45,7 @@ uart_16550_s uart __attribute__((aligned(4))) = {
 
 mc6845_s mc6845 __attribute__((aligned(4)));
 cga_s cga __attribute__((aligned(4)));
-ide_s ide __attribute__((aligned(4))) = {
-.latch_flag = false
-};
+ide_s ide __attribute__((aligned(4)));
 
 // IMPORTANT! Dont remove, hack to create .flashdata section for linker
 const uint64_t __in_flash("DUMMY") PICO_CLOCK_SPEED_MHZ = PICO_CLOCK_SPEED;

@@ -205,8 +205,7 @@ typedef struct {
     uint8_t sector_buffer[512];
     uint16_t buffer_index;
 
-    uint8_t temp_high_byte;
-    bool latch_flag;
+    uint8_t high_byte;
 
     uint8_t current_command;
     uint8_t sectors_remaining;

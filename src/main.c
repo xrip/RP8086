@@ -108,7 +108,7 @@ bool handleScancode(const uint8_t ps2scancode) {
     ide.disk_image = &hdd_file;
     if (FR_OK != f_open(ide.disk_image, "\\XT\\hdd.img", FA_READ | FA_WRITE)) {
         printf("Warning: HDD image (hdd.img) not found, drive C: will be unavailable\n");
-        ide.disk_image = NULL;  // Сбрасываем указатель если диск не найден
+        ide.disk_image = nullptr;  // Сбрасываем указатель если диск не найден
     }
 
 
@@ -121,8 +121,6 @@ bool handleScancode(const uint8_t ps2scancode) {
 
     absolute_time_t next_frame = get_absolute_time();
     next_frame = delayed_by_us(next_frame, 16666);
-    extern void ide_reset();
-    ide_reset();
     graphics_init();
     graphics_set_mode(TEXTMODE_80x25_BW);
     for (int i = 0; i < 16; i++) {
