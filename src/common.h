@@ -201,7 +201,7 @@ typedef struct {
 
 typedef struct {
     FIL* disk_image;
-    uint8_t regs[0xF];
+    uint8_t regs[8];
     uint8_t sector_buffer[512];
     uint16_t buffer_index;
 

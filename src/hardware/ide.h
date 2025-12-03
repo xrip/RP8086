@@ -137,8 +137,8 @@ static void read_sector(void) {
     }
 
     const uint32_t LBA = ide_get_lba();
-    const int res = load_sector_from_disk(LBA);
-    if (res != 0) {
+    const int result = load_sector_from_disk(LBA);
+    if (result != 0) {
         debug_log("IDE: Read error LBA=%lu ret=%d\n", (unsigned long)LBA, res);
         ide_set_error(0x40);
         return;
