@@ -3,6 +3,7 @@
 #include "hardware/i8272.h"
 
 IMPORT_BIN("./binary/GLABIOS.ROM", BIOS);
+IMPORT_BIN("./binary/ide_xt.bin", IDE);
 // IMPORT_BIN("./binary/landmark.bin", BIOS);
 // IMPORT_BIN("./binary/ruuds_diagnostic_rom_v5.4_8kb.bin", BIOS);
 // IMPORT_BIN("./binary/checkit.img", FLOPPY);
@@ -44,6 +45,7 @@ uart_16550_s uart __attribute__((aligned(4))) = {
 
 mc6845_s mc6845 __attribute__((aligned(4)));
 cga_s cga __attribute__((aligned(4)));
+ide_s ide __attribute__((aligned(4)));
 
 // IMPORTANT! Dont remove, hack to create .flashdata section for linker
 const uint64_t __in_flash("DUMMY") PICO_CLOCK_SPEED_MHZ = PICO_CLOCK_SPEED;

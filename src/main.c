@@ -17,6 +17,8 @@
 #include <debug.h>
 extern cga_s cga;
 extern mc6845_s mc6845;
+extern ide_s ide;
+
 uint8_t videomode = 0;
 repeating_timer_t irq0_timer;
 
@@ -82,6 +84,7 @@ bool handleScancode(const uint8_t ps2scancode) {
     mouse_init();  // Инициализация поддержки Microsoft Serial Mouse
     debug_init();
     FIL floppy_files[2];
+    FIL hdd_file;  // Файл HDD образа
     // Mount SD card filesystem
     if (FR_OK != f_mount(&fs, "", 1)) {
         // while (!stdio_usb_connected()) { tight_loop_contents(); }
@@ -100,6 +103,15 @@ bool handleScancode(const uint8_t ps2scancode) {
     if (FR_OK != f_open(&floppy_files[1], "\\XT\\fdd1.img", FA_READ | FA_WRITE)) {
         printf("Warning: Second floppy image (fdd1.img) not found, drive B: will be unavailable\n");
     }
+
+    // Открываем HDD образ
+    ide.disk_image = &hdd_file;
+    if (FR_OK != f_open(ide.disk_image, "\\XT\\hdd.img", FA_READ | FA_WRITE)) {
+        printf("Warning: HDD image (hdd.img) not found, drive C: will be unavailable\n");
+        ide.disk_image = nullptr;  // Сбрасываем указатель если диск не найден
+    }
+
+
     pwm = pwm_get_default_config();
     gpio_set_function(BEEPER_PIN, GPIO_FUNC_PWM);
     pwm_config_set_clkdiv(&pwm, 127);
@@ -109,8 +121,6 @@ bool handleScancode(const uint8_t ps2scancode) {
 
     absolute_time_t next_frame = get_absolute_time();
     next_frame = delayed_by_us(next_frame, 16666);
-
-
     graphics_init();
     graphics_set_mode(TEXTMODE_80x25_BW);
     for (int i = 0; i < 16; i++) {

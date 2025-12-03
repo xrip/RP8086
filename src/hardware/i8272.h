@@ -13,19 +13,6 @@
 
 extern uint8_t FLOPPY[];
 extern i8272_s i8272;
-// Single instance of the controller state (zero-initialized)
-
-// Keep existing code unchanged by mapping old names to struct fields
-#define DOR                (i8272.DOR)
-#define response           (i8272.response)
-#define command            (i8272.command)
-#define result             (i8272.result)
-#define presentCylinder    (i8272.presentCylinder)
-#define command_length     (i8272.command_length)
-#define result_count       (i8272.result_count)
-#define command_index      (i8272.command_index)
-#define result_index       (i8272.result_index)
-#define check_drives_mask  (i8272.check_drives_mask)
 
 #define FDD_CYLINDERS 80
 #define FDD_HEADS 2
@@ -48,7 +35,7 @@ extern i8272_s i8272;
 
 __force_inline static void i8272_irq(void) {
     // if interrupts enabled
-    if (DOR & (1 << 3)) {
+    if (i8272.DOR & (1 << 3)) {
         i8259_interrupt(6);
         debug_log("FDC: IRQ6 generated\n");
     }
@@ -60,18 +47,18 @@ __force_inline static uint8_t i8272_readport(const uint16_t port_number) {
         {
             // no drives busy, dma-mode
             return 0 |
-                   (result_count ? 1 << 4 : 0) | // fdc busy if there's a result to read
-                   (result_count ? 1 << 6 : 0) | // fdc->cpu if we have result data else cpu->fdc
+                   (i8272.result_count ? 1 << 4 : 0) | // fdc busy if there's a result to read
+                   (i8272.result_count ? 1 << 6 : 0) | // fdc->cpu if we have result data else cpu->fdc
                    1 << 7; // ready
         }
         case FDC_PORT_DATA: // floppy command/data
         {
-            if (result_count) {
-                const auto r = result[result_index++];
+            if (i8272.result_count) {
+                const auto r = i8272.result[i8272.result_index++];
 
                 // end of a result
-                if (result_index == result_count)
-                    result_count = 0;
+                if (i8272.result_index == i8272.result_count)
+                    i8272.result_count = 0;
 
                 return r;
             }
@@ -85,70 +72,70 @@ __force_inline static void i8272_writeport(const uint16_t port_number, const uin
     switch (port_number) {
         case FDC_PORT_DOR: // floppy digital output
         {
-            const auto dor_changed_bits = DOR ^ data;
+            const auto dor_changed_bits = i8272.DOR ^ data;
 
             if ((dor_changed_bits & (1 << 2)) && (data & (1 << 2))) {
                 i8272_irq();
 
-                check_drives_mask = 0xF; // all of them
+                i8272.check_drives_mask = 0xF; // all of them
             }
-            DOR = data;
+            i8272.DOR = data;
             break;
         }
 
         case FDC_PORT_DATA: // floppy command/data
         {
-            if (command_length == 0) {
-                command[0] = data;
+            if (i8272.command_length == 0) {
+                i8272.command[0] = data;
                 auto const cmd = data & 0x1F;
                 // printf("FCD = %02X\n", data);
                 if (cmd == FDC_CMD_SPECIFY) // specify
-                    command_length = 3;
+                    i8272.command_length = 3;
                 else if (cmd == FDC_CMD_SENSE_DRIVE_STATUS) // sense drive status
-                    command_length = 2;
+                    i8272.command_length = 2;
                 else if (cmd == FDC_CMD_WRITE_DATA) // write
-                    command_length = 9;
+                    i8272.command_length = 9;
                 else if (cmd == FDC_CMD_READ_DATA) // read
-                    command_length = 9;
+                    i8272.command_length = 9;
                 else if (cmd == FDC_CMD_RECALIBRATE) // recalibrate
-                    command_length = 2;
+                    i8272.command_length = 2;
                 else if (cmd == FDC_CMD_SENSE_INTERRUPT_STATUS) // sense interrupt status
-                    command_length = 1;
+                    i8272.command_length = 1;
                 else if (cmd == FDC_CMD_READ_ID) // read id
-                    command_length = 2;
+                    i8272.command_length = 2;
                 else if (cmd == FDC_CMD_SEEK)
-                    command_length = 3;
+                    i8272.command_length = 3;
                 else {
                     // return an error
-                    response[0] = 1 << 7; // invalid command
-                    result_count = 1;
-                    result[0] = response[0];
-                    result_index = 0;
+                    i8272.response[0] = 1 << 7; // invalid command
+                    i8272.result_count = 1;
+                    i8272.result[0] = i8272.response[0];
+                    i8272.result_index = 0;
                 }
 
-                if (command_length)
-                    command_index = 1;
+                if (i8272.command_length)
+                    i8272.command_index = 1;
             } else
-                command[command_index++] = data;
+                i8272.command[i8272.command_index++] = data;
 
-            if (command_length && command_index == command_length) {
+            if (i8272.command_length && i8272.command_index == i8272.command_length) {
                 // got full command
-                auto const cmd = command[0] & 0x1F;
+                auto const cmd = i8272.command[0] & 0x1F;
                 if (cmd == FDC_CMD_READ_DATA) // read
                 {
                     // multitrack mfm skip
-                    [[maybe_unused]] bool multiTrack = command[0] & (1 << 7);
-                    [[maybe_unused]] bool mfm = command[0] & (1 << 6);
+                    [[maybe_unused]] bool multiTrack = i8272.command[0] & (1 << 7);
+                    [[maybe_unused]] bool mfm = i8272.command[0] & (1 << 6);
                     // bool skipDeleted = command[0] & (1 << 5);
 
-                    const int drive = command[1] & 3;
-                    const int head = (command[1] >> 2) & 1;
+                    const int drive = i8272.command[1] & 3;
+                    const int head = (i8272.command[1] >> 2) & 1;
 
-                    const auto cylinder = command[2];
-                    [[maybe_unused]] auto headAgain = command[3];
-                    const auto sector = command[4];
-                    const auto number = command[5];
-                    const auto endOfTrack = command[6];
+                    const auto cylinder = i8272.command[2];
+                    [[maybe_unused]] auto headAgain = i8272.command[3];
+                    const auto sector = i8272.command[4];
+                    const auto number = i8272.command[5];
+                    const auto endOfTrack = i8272.command[6];
                     //auto gapLength = command[7];
                     //auto dataLength = command[8];
 
@@ -162,19 +149,19 @@ __force_inline static void i8272_writeport(const uint16_t port_number, const uin
                     // У нас две дискетки: drive 0 и drive 1
                     const bool failed = drive > 1;
 
-                    response[0] = drive | head << 2;
+                    i8272.response[0] = drive | head << 2;
 
                     if (failed)
-                        response[0] |= 1 << 6;
+                        i8272.response[0] |= 1 << 6;
 
-                    result_count = 7;
-                    result[0] = response[0];
-                    result[1] = response[1];
-                    result[2] = response[2];
-                    result[3] = cylinder;
-                    result[4] = head;
-                    result[5] = sector;
-                    result[6] = number;
+                    i8272.result_count = 7;
+                    i8272.result[0] = i8272.response[0];
+                    i8272.result[1] = i8272.response[1];
+                    i8272.result[2] = i8272.response[2];
+                    i8272.result[3] = cylinder;
+                    i8272.result[4] = head;
+                    i8272.result[5] = sector;
+                    i8272.result[6] = number;
 
                     // printf("FDC: read sector %d\n", record); //
                     if (!failed) {
@@ -189,46 +176,46 @@ __force_inline static void i8272_writeport(const uint16_t port_number, const uin
                     }
                 } else if (cmd == FDC_CMD_SENSE_INTERRUPT_STATUS) // sense interrupt status
                 {
-                    if (check_drives_mask) {
-                        const int drive = __builtin_ctz(check_drives_mask);
-                        check_drives_mask &= check_drives_mask - 1; // clear bit
-                        result[0] = 0xC0 | drive;
+                    if (i8272.check_drives_mask) {
+                        const int drive = __builtin_ctz(i8272.check_drives_mask);
+                        i8272.check_drives_mask &= i8272.check_drives_mask - 1; // clear bit
+                        i8272.result[0] = 0xC0 | drive;
                     } else {
-                        result[0] = response[0];
+                        i8272.result[0] = i8272.response[0];
                     }
 
-                    result[1] = presentCylinder[response[0] & 3];
-                    result_count = 2;
+                    i8272.result[1] = i8272.presentCylinder[i8272.response[0] & 3];
+                    i8272.result_count = 2;
                 } else if (cmd == FDC_CMD_SEEK) // seek
                 {
-                    const int drive = command[1] & 3;
+                    const int drive = i8272.command[1] & 3;
                     // int head = (command[1] >> 2) & 1;
-                    const auto cylinder = command[2];
+                    const auto cylinder = i8272.command[2];
 
-                    response[0] = drive;
+                    i8272.response[0] = drive;
                     if (drive > 1)
-                        response[0] |= 1 << 6 | 1 << 4; // abnormal termination/equipment check
+                        i8272.response[0] |= 1 << 6 | 1 << 4; // abnormal termination/equipment check
                     else {
-                        presentCylinder[drive] = cylinder;
+                        i8272.presentCylinder[drive] = cylinder;
 
                         // set seek end
-                        response[0] |= 1 << 5;
+                        i8272.response[0] |= 1 << 5;
                     }
 
                     i8272_irq();
                 } else if (cmd == FDC_CMD_WRITE_DATA) // write
                 {
-                    [[maybe_unused]] bool multiTrack = command[0] & (1 << 7);
-                    [[maybe_unused]] bool mfm = command[0] & (1 << 6);
+                    [[maybe_unused]] bool multiTrack = i8272.command[0] & (1 << 7);
+                    [[maybe_unused]] bool mfm = i8272.command[0] & (1 << 6);
                     // bool skipDeleted = command[0] & (1 << 5);
 
-                    int drive = command[1] & 3;
-                    int head = (command[1] >> 2) & 1;
+                    int drive = i8272.command[1] & 3;
+                    int head = (i8272.command[1] >> 2) & 1;
 
-                    auto cylinder = command[2];
-                    [[maybe_unused]] auto headAgain = command[3];
-                    auto sector = command[4];
-                    [[maybe_unused]] auto number = command[5];
+                    auto cylinder = i8272.command[2];
+                    [[maybe_unused]] auto headAgain = i8272.command[3];
+                    auto sector = i8272.command[4];
+                    [[maybe_unused]] auto number = i8272.command[5];
                     //auto endOfTrack = command[6];
                     //auto gapLength = command[7];
                     //auto dataLength = command[8];
@@ -241,19 +228,19 @@ __force_inline static void i8272_writeport(const uint16_t port_number, const uin
                     // prepare for write
                     const bool failed = drive > 1;
 
-                    response[0] = drive | head << 2;
+                    i8272.response[0] = drive | head << 2;
 
                     if (failed)
-                        response[0] |= 1 << 6;
+                        i8272.response[0] |= 1 << 6;
 
-                    result_count = 7;
-                    result[0] = response[0];
-                    result[1] = response[1];
-                    result[2] = response[2];
-                    result[3] = cylinder;
-                    result[4] = head;
-                    result[5] = sector;
-                    result[6] = number;
+                    i8272.result_count = 7;
+                    i8272.result[0] = i8272.response[0];
+                    i8272.result[1] = i8272.response[1];
+                    i8272.result[2] = i8272.response[2];
+                    i8272.result[3] = cylinder;
+                    i8272.result[4] = head;
+                    i8272.result[5] = sector;
+                    i8272.result[6] = number;
 
                     if (!failed) {
                         // Запускаем асинхронную DMA передачу на канале 2
@@ -273,52 +260,52 @@ __force_inline static void i8272_writeport(const uint16_t port_number, const uin
                     // bool nonDMA = command[2] & 1;
                 } else if (cmd == FDC_CMD_SENSE_DRIVE_STATUS) // sense drive status
                 {
-                    const int drive = command[1] & 3;
+                    const int drive = i8272.command[1] & 3;
                     // int head = (command[1] >> 2) & 1;
 
-                    const bool isTrack_0 = presentCylinder[drive] == 0;
+                    const bool isTrack_0 = i8272.presentCylinder[drive] == 0;
 
-                    result_count = 1;
-                    result[0] = (isTrack_0 ? 1 << 4 : 0) | 1 << 5 /*ready*/;
+                    i8272.result_count = 1;
+                    i8272.result[0] = (isTrack_0 ? 1 << 4 : 0) | 1 << 5 /*ready*/;
                 } else if (cmd == FDC_CMD_RECALIBRATE) // recalibrate
                 {
-                    const int drive = command[1] & 3;
+                    const int drive = i8272.command[1] & 3;
 
-                    response[0] = drive;
+                    i8272.response[0] = drive;
                     if (drive > 1)
-                        response[0] |= 1 << 6 | 1 << 4; // abnormal termination/equipment check
+                        i8272.response[0] |= 1 << 6 | 1 << 4; // abnormal termination/equipment check
                     else {
-                        presentCylinder[drive] = 0;
-                        response[0] |= 1 << 5; // set seek end
+                        i8272.presentCylinder[drive] = 0;
+                        i8272.response[0] |= 1 << 5; // set seek end
                     }
 
                     i8272_irq();
                 } else if (cmd == FDC_CMD_READ_ID) // read id
                 {
-                    [[maybe_unused]] bool mfm = command[0] & (1 << 6);
+                    [[maybe_unused]] bool mfm = i8272.command[0] & (1 << 6);
 
-                    const int drive = command[1] & 3;
-                    const int head = (command[1] >> 2) & 1;
+                    const int drive = i8272.command[1] & 3;
+                    const int head = (i8272.command[1] >> 2) & 1;
 
                     assert(mfm);
 
-                    response[0] = drive | head << 2;
+                    i8272.response[0] = drive | head << 2;
 
-                    result_count = 7;
-                    result[0] = response[0];
-                    result[1] = response[1];
-                    result[2] = response[2];
-                    result[3] = presentCylinder[drive];
-                    result[4] = head;
-                    result[5] = 1;
-                    result[6] = 2; // ?
+                    i8272.result_count = 7;
+                    i8272.result[0] = i8272.response[0];
+                    i8272.result[1] = i8272.response[1];
+                    i8272.result[2] = i8272.response[2];
+                    i8272.result[3] = i8272.presentCylinder[drive];
+                    i8272.result[4] = head;
+                    i8272.result[5] = 1;
+                    i8272.result[6] = 2; // ?
 
                     i8272_irq();
                 }
 
 
-                command_length = 0;
-                result_index = 0;
+                i8272.command_length = 0;
+                i8272.result_index = 0;
             }
 
             break;

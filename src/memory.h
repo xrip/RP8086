@@ -5,6 +5,7 @@
 // External Memory Arrays
 // ============================================================================
 extern uint8_t BIOS[];
+extern uint8_t IDE[];
 
 // Универсальная функция записи с поддержкой BHE (8/16-bit operations)
 __always_inline static void write_to(uint8_t *destination, const uint32_t address,
@@ -34,12 +35,16 @@ __force_inline static uint16_t memory_read(const uint32_t address) {
         return *(uint16_t *)&VIDEORAM[address & 0x7FFF];
     }
 
-    if ((address - 0xD0000) < UMB_SIZE) {
-        return *(uint16_t *)&UMB[address - 0xD0000];
+    if ((address - 0xC8000) < 8192) {
+        return *(uint16_t *)&IDE[address - 0xC8000];
     }
 
+    // if ((address - 0xD0000) < UMB_SIZE) {
+        // return *(uint16_t *)&UMB[address - 0xD0000];
+    // }
+
     if (address == 0xFC000) {
-        return 0x21;
+        return 0x21; // Tandy hack
     }
 
     if (address >= BIOS_ROM_BASE) {

@@ -201,7 +201,6 @@ static inline void ntsc_generate_scanline(uint16_t *output_buffer, const size_t 
                 *buffer_ptr++ = 2; // Phase 180°
                 *buffer_ptr++ = 3; // Phase 270°
             }
-
         }
 
         // Fill remainder with blanking level
