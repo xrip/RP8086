@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 RP8086 is a hardware-software complex that uses a Raspberry Pi Pico (RP2350B) as a complete chipset for the Intel 8086 processor. The RP2350B acts as:
 - Bus controller (via PIO0 state machine at 500 MHz)
 - ROM/RAM emulator (736KB RAM via external PSRAM + 16KB VRAM + 8KB BIOS)
-- I/O controller (Intel 8259A, 8253, 8237, 8272A, 16550 UART, i8042 keyboard controller emulation)
+- I/O controller (Intel 8259A, 8253, 8237, 8272A, XTIDE, 16550 UART, i8042 keyboard controller emulation)
 - Clock generator (4.75-6 MHz PWM, 33% duty cycle, configurable)
 - CGA/PCjr video adapter with hardware VGA output (GPIO 30-37 via PIO1 and R-2R DAC)
   - Text mode: 80×25 (16 colors)
@@ -21,7 +21,7 @@ RP8086 is a hardware-software complex that uses a Raspberry Pi Pico (RP2350B) as
   - USB hub support: up to 4 HID devices simultaneously
   - Plug & Play: automatic device detection on Type-C port connection
 
-The system successfully boots DR-DOS 7 and other DOS operating systems from SD card floppy images and runs at stable **4.75-6 MHz**.
+The system successfully boots DR-DOS 7 and other DOS operating systems from SD card floppy/HDD images and runs at stable **4.75-6 MHz**.
 
 ## Build Commands
 
@@ -137,7 +137,7 @@ SCRATCH_Y (4KB)      : Core1 fast scratchpad
   - Debug commands: R (reset), B (bootloader), M (memory dump), V (video dump), C (CTTY mode), P (CGA registers)
   - CTTY mode: Direct serial terminal mode via COM1/USB
   - PC Speaker: PWM output on GPIO 46 controlled by i8253 Channel 2 emulation (port 0x61)
-  - SD Card: Loads .img disk images from FAT filesystem for FDC emulation
+  - SD Card: Loads .img disk images (floppy and HDD) from FAT filesystem for FDC and XTIDE emulation
 
 **Core1 (bus_handler_core) - Bus & IRQ Management:**
 - Hardware initialization sequence (critical order):
@@ -251,7 +251,7 @@ RP2350B has 2 PIO blocks (PIO0, PIO1), each with 4 state machines and 32 instruc
   - Serial terminal: ASCII → Scancode conversion (for debug)
 - Debug commands (uppercase): R, B, M, V, C, P
 - CTTY mode support (direct COM1/USB terminal mode)
-- SD card management: loads floppy disk images (.img) from FAT filesystem
+- SD card management: loads floppy and HDD disk images (.img) from FAT filesystem
 
 **cpu.c/h** - i8086 CPU control:
 - `start_cpu_clock()`: PWM generation for i8086 clock (33% duty cycle)
@@ -265,7 +265,7 @@ RP2350B has 2 PIO blocks (PIO0, PIO1), each with 4 state machines and 32 instruc
 
 **common.h** - Common definitions and structures:
 - System configuration (clocks, pins, PIO settings)
-- Device structures: `i8259_s`, `i8253_s`, `dma_channel_s`, `i8272_s`, `uart_16550_s`, `mc6845_s`, `cga_s`
+- Device structures: `i8259_s`, `i8253_s`, `dma_channel_s`, `i8272_s`, `ide_s`, `uart_16550_s`, `mc6845_s`, `cga_s`
 - Helper functions: `write_to()` for BHE support
 
 **memory.h** - Memory emulation:
@@ -305,6 +305,17 @@ RP2350B has 2 PIO blocks (PIO0, PIO1), each with 4 state machines and 32 instruc
 - IRQ6 generation on operation completion
 - Supports multiple disk formats (160KB-1.44MB)
 
+**hardware/ide.h** - XTIDE/ATA Hard Disk Controller:
+- Full XTIDE controller emulation at ports 0x300-0x308
+- LBA28 and CHS addressing modes support
+- Implemented commands: IDENTIFY DEVICE (0xEC), READ SECTOR(S) (0x20), WRITE SECTOR(S) (0x30), READ VERIFY (0x40/0x41)
+- Works with HDD image file (hdd.img) on SD card via FatFS
+- 512-byte sector buffer for efficient I/O operations
+- Status register with BUSY, DRDY, DSC, DRQ, ERR flags
+- Multi-sector transfers with automatic LBA increment
+- Geometry: 16 heads, 63 sectors per track (standard CHS)
+- Functions: `ide_read()`, `ide_write()`, `ide_identify()`, `read_sector()`, `write_sector()`
+
 **hardware/uart.h** - 16550 UART emulation:
 - Full COM1 emulation at ports 0x3F8-0x3FF
 - FIFO support for buffered serial I/O
@@ -342,6 +353,7 @@ RP2350B has 2 PIO blocks (PIO0, PIO1), each with 4 state machines and 32 instruc
 - Uses SPI1 bus (GPIO 40-43: MISO, CS, SCK, MOSI)
 - Mounts FAT12/FAT16/FAT32 filesystem from SD card at boot
 - Loads floppy disk images (.img files) for i8272A FDC emulation
+- Loads hard disk images (hdd.img) for XTIDE controller emulation
 - Supported disk image formats:
   - 160KB (SS/SD, 8 sectors/track)
   - 180KB (SS/SD, 9 sectors/track)
@@ -353,7 +365,8 @@ RP2350B has 2 PIO blocks (PIO0, PIO1), each with 4 state machines and 32 instruc
 - Auto-detection of disk geometry from image file size
 - Configurable pin assignments via CMakeLists.txt compile definitions
 - Integrated with FAT filesystem driver for DOS compatibility
-- Primary use: boot DR-DOS 7 and other DOS-based operating systems from disk images stored on SD card
+- Primary use: boot DR-DOS 7 and other DOS-based operating systems from floppy/HDD images stored on SD card
+- HDD images support: LBA28 addressing with up to 8GB capacity (limited by FatFS file size)
 
 **drivers/usbhid/** - USB HID driver (TinyUSB stack):
 - **tusb_config.h**: TinyUSB configuration
@@ -413,6 +426,7 @@ Reset vector at 0xFFFF0 points into ROM.
 - 0x61: System Control Port B (keyboard reset, speaker enable via bit 0-1, timer gate)
 - 0x64: Keyboard Status Port (i8042 emulation, output buffer status)
 - 0x81/82/83/87: DMA Page Registers (20-bit addressing for DMA channels)
+- 0x300-0x308: XTIDE/ATA Hard Disk Controller (LBA28/CHS, sector I/O, status/command)
 - 0x3D0-0x3DF: CGA/MC6845 CRTC registers (video timing, cursor position)
 - 0x3F0-0x3F7: Intel 8272A FDC (floppy disk controller, DMA channel 2)
 - 0x3F8-0x3FF: 16550 UART (COM1, used for CTTY mode and DOS serial I/O)
