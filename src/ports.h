@@ -51,16 +51,11 @@ __force_inline static uint8_t port_read8(const uint32_t address) {
         case 0x40 ... 0x42: {
             return i8253_read(address);
         }
-        case 0x60: {
-            // Иначе читаем скан-код и сбрасываем
-            const uint8_t scancode = current_scancode;
-            current_scancode = 0;
-            return scancode;
-        }
-        case 0x61: {
+        case 0x60:
+            return current_scancode;
+        case 0x61:
             return port61;
-        }
-            case 0x62: {
+        case 0x62: {
             uint8_t r = 0;
             if (port61 & 0x8) {
                 r |= 1 << 2; // 2 FDD
@@ -132,6 +127,11 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
                 pwm_set_gpio_level(BEEPER_PIN, 127);
             } else {
                 pwm_set_gpio_level(BEEPER_PIN, 0);
+            }
+
+            // Бит 7: Clear keyboard (IBM PC XT standard)
+            if ((data & 0x80) && !(port61 & 0x80)) {
+                current_scancode = 0;
             }
 
             if ((data & 0x40) && !(port61 & 0x40)) {
