@@ -116,11 +116,8 @@ bool handleScancode(const uint8_t ps2scancode) {
     if (settings.fda[0] != '\0') {
         if (FR_OK != f_open(&floppy_files[0], settings.fda, FA_READ | FA_WRITE)) {
             printf("Floppy image not found: %s\n", settings.fda);
-            reset_usb_boot(0, 0);
+            // reset_usb_boot(0, 0);
         }
-    } else {
-        printf("Floppy A: disabled by user\n");
-        reset_usb_boot(0, 0);  // Первая дискета обязательна
     }
 
     // Открываем вторую дискетку (опциональная) - используем путь из settings

@@ -10,6 +10,14 @@ enum menu_type_e {
     EXIT,   // Выход из меню
 };
 
+/* ----------------- menu drawing ----------------- */
+static const char *footers[] = {
+    [NONE] = "UP/DOWN: Navigate  ESC: Exit without saving",
+    [ARRAY] = "ENTER/LEFT/RIGHT: Change  UP/DOWN: Navigate  ESC: Exit without saving",
+    [STRING] = "ENTER: Browse  UP/DOWN: Navigate  ESC: Exit without saving",
+    [EXIT] = "ENTER: Save and Exit  ESC: Exit without saving"
+};
+
 // Callback функция для пунктов меню (может быть nullptr)
 typedef bool (*menu_callback_t)();
 

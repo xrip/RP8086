@@ -1,51 +1,69 @@
 #include "graphics.h"
 #include <string.h>
+#include <stdio.h>
 
 #include "common.h"
 
-void draw_text(const char string[2*TEXTMODE_COLS + 1], uint32_t x, uint32_t y, uint8_t color, uint8_t bgcolor) {
-    uint8_t *t_buf = VIDEORAM + TEXTMODE_COLS * 2 * y + 2 * x;
-    for (int xi = TEXTMODE_COLS * 2; xi--;) {
-        if (!*string) break;
-        *t_buf++ = *string++;
-        *t_buf++ = bgcolor << 4 | color & 0xF;
+static inline void draw_text_fast(const char *text, const uint32_t x, const uint32_t y, const uint8_t attribute)
+{
+    auto videoram = (uint16_t *)(VIDEORAM + (y * TEXTMODE_COLS + x) * 2);
+
+    while (*text) {
+        *videoram++ = attribute << 8 | *text++;
     }
 }
 
-void draw_window(const char title[2*TEXTMODE_COLS + 1], const char footer[2*TEXTMODE_COLS + 1], uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
-    char line[width + 1];
-    memset(line, 0, sizeof line);
-    width--;
-    height--;
-    // Рисуем рамки
 
-    memset(line, 0xCD, width); // ═══
+void draw_text(const char *text, const uint32_t x, const uint32_t y, const uint8_t fgcolor, const uint8_t bgcolor) {
+    draw_text_fast(text, x, y, bgcolor << 4 | fgcolor & 0xF);
+}
 
-    // Верхняя рамка
-    line[0] = 0xC9; // ╔
-    line[width] = 0xBB; // ╗
-    draw_text(line, x, y, 11, 1);
+void draw_window(const char *title, const char *footer, const uint32_t x, const uint32_t y, const uint32_t width, const uint32_t height)
+{
+    if (width < 3 || height < 3) return;
 
-    // Нижняя рамка
-    line[0] = 0xC8; // ╚
-    line[width] = 0xBC; //  ╝
-    draw_text(line, x, height + y, 11, 1);
+    constexpr uint8_t attr_frame = (1 << 4) | 11; // bg=1 fg=11
+    constexpr uint8_t attr_title = (3 << 4) | 14; // bg=3 fg=14
+    constexpr uint8_t attr_footer = (1 << 4) | 7;
 
-    // Боковые стороны
-    memset(line, ' ', width);
-    line[0] = line[width] = 0xBA;
+    char buffer[TEXTMODE_COLS + 1];
+    const uint32_t inner = width - 2;
 
-    for (int i = 1; i < height; i++) {
-        draw_text(line, x, y + i, 11, 1);
+    // ┌──────┐ Верхняя граница
+    buffer[0] = 0xC9; // ╔
+    memset(buffer + 1, 0xCD, inner);
+    buffer[width - 1] = 0xBB; // ╗
+    buffer[width] = 0;
+    draw_text_fast(buffer, x, y, attr_frame);
+
+    // └──────┘ Нижняя граница
+    buffer[0] = 0xC8; // ╚
+    memset(buffer + 1, 0xCD, inner);
+    buffer[width - 1] = 0xBC; // ╝
+    draw_text_fast(buffer, x, y + height - 1, attr_frame);
+
+    // Вертикальные линии + пробелы внутри
+    memset(buffer + 1, ' ', inner);
+    buffer[0] = buffer[width - 1] = 0xBA; // ║
+    buffer[width] = 0;
+
+    for (uint32_t i = 1; i < height - 1; i++) {
+        draw_text_fast(buffer, x, y + i, attr_frame);
     }
 
-    // Заголовок (title)
-    snprintf(line, width - 1, " %s ", title);
-    draw_text(line, x + (width - strlen(line)) / 2, y, 14, 3);
+    // Заголовок
+    if (title && *title) {
+        snprintf(buffer, inner, " %s ", title);
+        const size_t title_length = strlen(buffer);
+        const uint32_t title_x = x + (width - title_length) / 2;
+        draw_text_fast(buffer, title_x, y, attr_title);
+    }
 
-    // Footer (если задан) - на предпоследней строке
-    if (footer && footer[0] != '\0') {
-        snprintf(line, width - 1, " %s ", footer);
-        draw_text(line, x + (width - strlen(line)) / 2, height + y, 14, 1);
+    // Футер
+    if (footer && *footer) {
+        snprintf(buffer, inner, " %s ", footer);
+        const size_t footer_length = strlen(buffer);
+        const uint32_t footer_x = x + (width - footer_length) / 2;
+        draw_text_fast(buffer, footer_x, y + height - 1, attr_footer);
     }
 }
