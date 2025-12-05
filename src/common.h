@@ -331,3 +331,4 @@ static void psram_init(const int cs_pin) {
 void cpu_bus_init();
 void start_cpu_clock(void);
 void reset_cpu(void);
+void mc6845_init_text_mode(void);  // Инициализация MC6845 для текстового режима 80x25
