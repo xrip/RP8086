@@ -3,499 +3,329 @@
 #include "common.h"
 #include <string.h>
 #include <stdio.h>
-#include <stdlib.h>  // Для malloc/free
-#include <pico/time.h>  // Для sleep_us()
-#include "../drivers/fatfs/ff.h"  // FatFS для работы с SD картой
-
+#include <stdlib.h>
+#include <pico/time.h>
+#include "../drivers/fatfs/ff.h"
 #include "pico/stdio.h"
 #ifndef DEBUG
-#include "../drivers/usbhid/hid_app.h"  // Для keyboard_tick() в RELEASE режиме
+#include "../drivers/usbhid/hid_app.h"
 #endif
 
-// Глобальная структура настроек (инициализация по умолчанию)
+#define MENU_ITEMS_COUNT (sizeof(menu_items) / sizeof(MenuItem))
+#define BROWSER_WIDTH 60
+#define BROWSER_HEIGHT 20
+#define BROWSER_MAX_VISIBLE 14
+#define BROWSER_MAX_FILES 50
+#define CONFIG_FILE "/XT/config.sys"
+
 settings_s settings = {
-    .tandy_enabled = 0,  // NO
-    .turbo = 1,          // ENABLED
+    .tandy_enabled = 0,
+    .turbo = 1,
     .fda = "/XT/fdd.img",
-    .fdb = "",           // По умолчанию отключен
+    .fdb = "",
     .hdd = "/XT/hdd.img",
 };
 
-// Определение пунктов меню
 static const MenuItem menu_items[] = {
-    { "Features:", NONE, nullptr, nullptr, 0, .colors = {14, 1} },  // Желтый на синем
+    { "Features:", NONE, nullptr, nullptr, 0, .colors = {14, 1} },
     { "  Turbo 6MHz:              %s", ARRAY, &settings.turbo, nullptr, 1, { "DISABLED", "ENABLED" }},
     { "  IBM PCjr/Tandy mode:     %s", ARRAY, &settings.tandy_enabled, nullptr, 1, { "NO", "YES" }},
-    { "", NONE, nullptr, nullptr, 0, .colors = {7, 1} },  // Серый разделитель
-    { "Storage devices:", NONE, nullptr, nullptr, 0, .colors = {14, 1} },  // Желтый на синем
+    { "", NONE, nullptr, nullptr, 0, .colors = {7, 1} },
+    { "Storage devices:", NONE, nullptr, nullptr, 0, .colors = {14, 1} },
     { "  Floppy #1:               %s", STRING, &settings.fda, nullptr, 255, {} },
     { "  Floppy #2:               %s", STRING, &settings.fdb, nullptr, 255, {} },
     { "  Hard drive:              %s", STRING, &settings.hdd, nullptr, 255, {} },
-    { "", NONE, nullptr, nullptr, 0, .colors = {7, 1} },  // Серый разделитель
-    { "Save Settings And Exit", EXIT, nullptr, nullptr, 0, .colors = {10, 1} }  // Зеленый
+    { "", NONE, nullptr, nullptr, 0, .colors = {7, 1} },
+    { "Save Settings And Exit", EXIT, nullptr, nullptr, 0, .colors = {10, 1} }
 };
 
-#define MENU_ITEMS_COUNT (sizeof(menu_items) / sizeof(MenuItem))
-
-// Внешние переменные из main.c
 extern uint8_t current_scancode;
 
-// Структура для управления навигацией по списку
 typedef struct {
-    uint8_t current_item;   // Текущий выбранный элемент
-    uint8_t scroll_offset;  // Смещение прокрутки
-    uint8_t item_count;     // Общее количество элементов
-    uint8_t max_visible;    // Максимум видимых элементов
+    uint8_t current_item;
+    uint8_t scroll_offset;
+    uint8_t item_count;
+    uint8_t max_visible;
 } ListNavigation;
 
-// Навигация вверх по списку
+typedef struct {
+    char name[64];
+    bool is_dir;
+} FileEntry;
+
 static void list_nav_up(ListNavigation* nav) {
     if (nav->current_item > 0) {
         nav->current_item--;
-        // Прокрутка вверх
         if (nav->current_item < nav->scroll_offset) {
             nav->scroll_offset = nav->current_item;
         }
     }
 }
 
-// Навигация вниз по списку
 static void list_nav_down(ListNavigation* nav) {
     if (nav->current_item < nav->item_count - 1) {
         nav->current_item++;
-        // Прокрутка вниз
         if (nav->current_item >= nav->scroll_offset + nav->max_visible) {
             nav->scroll_offset = nav->current_item - nav->max_visible + 1;
         }
     }
 }
 
-// Навигация вверх по меню (с пропуском NONE элементов)
 static void menu_nav_up(uint8_t* current_item, const MenuItem* items, uint8_t item_count) {
     do {
-        if (*current_item == 0) {
-            *current_item = item_count - 1;
-        } else {
-            (*current_item)--;
-        }
+        *current_item = (*current_item == 0) ? item_count - 1 : *current_item - 1;
     } while (items[*current_item].type == NONE);
 }
 
-// Навигация вниз по меню (с пропуском NONE элементов)
 static void menu_nav_down(uint8_t* current_item, const MenuItem* items, uint8_t item_count) {
     do {
         *current_item = (*current_item + 1) % item_count;
     } while (items[*current_item].type == NONE);
 }
 
-// Очистка экрана
-static void clear_screen(void) {
+static inline void clear_screen(void) {
     memset(VIDEORAM, 0, TEXTMODE_COLS * 2 * TEXTMODE_ROWS);
 }
 
-// Ожидание и получение скан-кода
+static inline void cycle_array_value(const MenuItem* item) {
+    uint8_t* value = (uint8_t*)item->value;
+    *value = (*value >= item->max_value) ? 0 : *value + 1;
+}
+
 static uint8_t wait_for_scancode(void) {
 #ifdef DEBUG
-    // В DEBUG режиме нужно обрабатывать ANSI escape последовательности
-    static enum {
-        ANSI_STATE_NORMAL,
-        ANSI_STATE_ESC,
-        ANSI_STATE_SS3,
-        ANSI_STATE_CSI
-    } ansi_state = ANSI_STATE_NORMAL;
+    static enum { ANSI_NORMAL, ANSI_ESC, ANSI_SS3, ANSI_CSI } ansi_state = ANSI_NORMAL;
 
     while (true) {
         const int c = getchar_timeout_us(0);
-
         if (c == PICO_ERROR_TIMEOUT) {
             busy_wait_ms(16);
             continue;
         }
 
         switch (ansi_state) {
-            case ANSI_STATE_NORMAL:
-                if (c == 0x1B) {  // ESC
-                    ansi_state = ANSI_STATE_ESC;
-                    // Ждем следующий символ с таймаутом 50ms
+            case ANSI_NORMAL:
+                if (c == 0x1B) {
                     const int next = getchar_timeout_us(50000);
-                    if (next == PICO_ERROR_TIMEOUT) {
-                        // Таймаут - это одиночный ESC
-                        ansi_state = ANSI_STATE_NORMAL;
-                        return 0x01;  // ESC scancode
-                    }
-                    // Обрабатываем следующий символ сразу
-                    if (next == 'O') {
-                        ansi_state = ANSI_STATE_SS3;
-                    } else if (next == '[') {
-                        ansi_state = ANSI_STATE_CSI;  // CSI последовательность (ESC [)
-                    } else {
-                        ansi_state = ANSI_STATE_NORMAL;
-                        return 0x01;  // ESC scancode
-                    }
-                } else if (c == 0x0D || c == '\n') {  // Enter
-                    return 0x1C;
-                } else if (c == 0x20) {  // Space
-                    return 0x39;
-                } else if (c == 0x7F || c == 0x08) {  // Backspace (DEL или BS)
-                    return 0x0E;
-                } else {
-                    // Возвращаем символ как есть для отладки
-                    return c;
-                }
+                    if (next == PICO_ERROR_TIMEOUT) return 0x01;
+                    ansi_state = (next == 'O') ? ANSI_SS3 : (next == '[') ? ANSI_CSI : ANSI_NORMAL;
+                    if (ansi_state == ANSI_NORMAL) return 0x01;
+                } else if (c == 0x0D || c == '\n') return 0x1C;
+                else if (c == 0x20) return 0x39;
+                else if (c == 0x7F || c == 0x08) return 0x0E;
+                else return c;
                 break;
 
-            case ANSI_STATE_ESC:
-                // Этот случай теперь обрабатывается выше
-                if (c == 'O') {  // SS3 последовательность (ESC O)
-                    ansi_state = ANSI_STATE_SS3;
-                } else if (c == '[') {  // CSI последовательность (ESC [) - игнорируем
-                    ansi_state = ANSI_STATE_NORMAL;
-                } else {
-                    // Одиночный ESC без последовательности
-                    ansi_state = ANSI_STATE_NORMAL;
-                    return 0x01;  // ESC scancode
-                }
+            case ANSI_ESC:
+                ansi_state = (c == 'O') ? ANSI_SS3 : ANSI_NORMAL;
+                if (ansi_state == ANSI_NORMAL && c != '[') return 0x01;
                 break;
 
-            case ANSI_STATE_SS3:
-                ansi_state = ANSI_STATE_NORMAL;
+            case ANSI_SS3:
+            case ANSI_CSI:
+                if (ansi_state == ANSI_CSI && (c >= '0' && c <= '9' || c == ';')) break;
+                ansi_state = ANSI_NORMAL;
                 switch (c) {
-                    case 'A': return 0x48;  // UP Arrow (правильный XT scancode)
-                    case 'B': return 0x50;  // DOWN Arrow
-                    case 'C': return 0x4D;  // RIGHT Arrow
-                    case 'D': return 0x4B;  // LEFT Arrow
+                    case 'A': return 0x48;
+                    case 'B': return 0x50;
+                    case 'C': return 0x4D;
+                    case 'D': return 0x4B;
                     default: break;
-                }
-                break;
-
-            case ANSI_STATE_CSI:
-                // Проверяем, это финальный символ или промежуточный
-                if (c >= '0' && c <= '9') {
-                    // Цифры - часть параметров, продолжаем ждать
-                    break;
-                } else if (c == ';') {
-                    // Разделитель параметров, продолжаем ждать
-                    break;
-                } else {
-                    // Финальный символ - обрабатываем и сбрасываем состояние
-                    ansi_state = ANSI_STATE_NORMAL;
-                    switch (c) {
-                        case 'A': return 0x48;  // UP Arrow
-                        case 'B': return 0x50;  // DOWN Arrow
-                        case 'C': return 0x4D;  // RIGHT Arrow
-                        case 'D': return 0x4B;  // LEFT Arrow
-                        case '~': break;  // Расширенные последовательности игнорируем
-                        default: break;
-                    }
                 }
                 break;
         }
     }
 #else
-    // В RELEASE режиме используем USB HID
     while (true) {
-        keyboard_tick();  // Обработка USB HID клавиатуры
-
+        keyboard_tick();
         if (current_scancode != 0) {
             uint8_t scancode = current_scancode;
-            current_scancode = 0;  // Сбрасываем
+            current_scancode = 0;
             return scancode;
         }
-        busy_wait_ms(16);  // Небольшая задержка 16ms
+        busy_wait_ms(16);
     }
 #endif
 }
 
-// Структура элемента файлового списка
-typedef struct {
-    char name[64];      // Имя файла/директории
-    bool is_dir;        // true если директория
-} FileEntry;
-
-// Сохранение настроек на SD карту
 bool save_settings(void) {
     FIL file;
-    UINT bytes_written;
+    UINT bw;
     char line[300];
 
-    // Открываем файл для записи
-    FRESULT res = f_open(&file, "/XT/config.sys", FA_CREATE_ALWAYS | FA_WRITE);
-    if (res != FR_OK) {
-        return false;
+    if (f_open(&file, CONFIG_FILE, FA_CREATE_ALWAYS | FA_WRITE) != FR_OK) return false;
+
+    const struct { const char* key; const void* val; bool is_str; } cfg[] = {
+        {"TANDY", &settings.tandy_enabled, false},
+        {"TURBO", &settings.turbo, false},
+        {"FDA", settings.fda, true},
+        {"FDB", settings.fdb, true},
+        {"HDD", settings.hdd, true}
+    };
+
+    for (size_t i = 0; i < sizeof(cfg) / sizeof(cfg[0]); i++) {
+        if (cfg[i].is_str) {
+            snprintf(line, sizeof(line), "%s=%s\n", cfg[i].key, (const char*)cfg[i].val);
+        } else {
+            snprintf(line, sizeof(line), "%s=%d\n", cfg[i].key, *(const uint8_t*)cfg[i].val);
+        }
+        f_write(&file, line, strlen(line), &bw);
     }
-
-    // Записываем настройки в текстовом формате
-    snprintf(line, sizeof(line), "TANDY=%d\n", settings.tandy_enabled);
-    f_write(&file, line, strlen(line), &bytes_written);
-
-    snprintf(line, sizeof(line), "TURBO=%d\n", settings.turbo);
-    f_write(&file, line, strlen(line), &bytes_written);
-
-    snprintf(line, sizeof(line), "FDA=%s\n", settings.fda);
-    f_write(&file, line, strlen(line), &bytes_written);
-
-    snprintf(line, sizeof(line), "FDB=%s\n", settings.fdb);
-    f_write(&file, line, strlen(line), &bytes_written);
-
-    snprintf(line, sizeof(line), "HDD=%s\n", settings.hdd);
-    f_write(&file, line, strlen(line), &bytes_written);
 
     f_close(&file);
     return true;
 }
 
-// Загрузка настроек с SD карты
 bool load_settings(void) {
     FIL file;
     char line[300];
-    UINT bytes_read;
 
-    // Открываем файл для чтения
-    FRESULT res = f_open(&file, "/XT/config.sys", FA_READ);
-    if (res != FR_OK) {
-        return false;  // Файл не найден - используем значения по умолчанию
-    }
+    if (f_open(&file, CONFIG_FILE, FA_READ) != FR_OK) return false;
 
-    // Читаем файл построчно
     while (f_gets(line, sizeof(line), &file)) {
-        // Убираем перевод строки
         char* newline = strchr(line, '\n');
         if (newline) *newline = '\0';
 
-        // Парсим строки
-        if (strncmp(line, "TANDY=", 6) == 0) {
-            settings.tandy_enabled = atoi(line + 6);
-        } else if (strncmp(line, "TURBO=", 6) == 0) {
-            settings.turbo = atoi(line + 6);
-        } else if (strncmp(line, "FDA=", 4) == 0) {
-            strncpy(settings.fda, line + 4, sizeof(settings.fda) - 1);
-            settings.fda[sizeof(settings.fda) - 1] = '\0';
-        } else if (strncmp(line, "FDB=", 4) == 0) {
-            strncpy(settings.fdb, line + 4, sizeof(settings.fdb) - 1);
-            settings.fdb[sizeof(settings.fdb) - 1] = '\0';
-        } else if (strncmp(line, "HDD=", 4) == 0) {
-            strncpy(settings.hdd, line + 4, sizeof(settings.hdd) - 1);
-            settings.hdd[sizeof(settings.hdd) - 1] = '\0';
-        }
+        char* eq = strchr(line, '=');
+        if (!eq) continue;
+        *eq = '\0';
+        const char* val = eq + 1;
+
+        if (strcmp(line, "TANDY") == 0) settings.tandy_enabled = atoi(val);
+        else if (strcmp(line, "TURBO") == 0) settings.turbo = atoi(val);
+        else if (strcmp(line, "FDA") == 0) strncpy(settings.fda, val, sizeof(settings.fda) - 1);
+        else if (strcmp(line, "FDB") == 0) strncpy(settings.fdb, val, sizeof(settings.fdb) - 1);
+        else if (strcmp(line, "HDD") == 0) strncpy(settings.hdd, val, sizeof(settings.hdd) - 1);
     }
 
     f_close(&file);
     return true;
 }
 
-// Файловый браузер для выбора образов дисков
 bool file_browser(char* selected_path, uint8_t max_path_len, const char* filter) {
-    // Выделяем память динамически
-    DIR *dir = (DIR *)malloc(sizeof(DIR));
-    FILINFO *fno = (FILINFO *)malloc(sizeof(FILINFO));
-    FileEntry *files = (FileEntry *)malloc(50 * sizeof(FileEntry));
-    char *current_path = (char *)malloc(256);
+    DIR *dir = malloc(sizeof(DIR));
+    FILINFO *fno = malloc(sizeof(FILINFO));
+    FileEntry *files = malloc(BROWSER_MAX_FILES * sizeof(FileEntry));
+    char *current_path = malloc(256);
 
-    // Проверяем успешность выделения памяти
     if (!dir || !fno || !files || !current_path) {
-        // Освобождаем уже выделенную память
         if (dir) free(dir);
         if (fno) free(fno);
         if (files) free(files);
         if (current_path) free(current_path);
-        return false;  // Не удалось выделить память
+        return false;
     }
 
-    const uint8_t BROWSER_WIDTH = 60;
-    const uint8_t BROWSER_HEIGHT = 20;
     const uint8_t BROWSER_X = (TEXTMODE_COLS - BROWSER_WIDTH) / 2;
     const uint8_t BROWSER_Y = (TEXTMODE_ROWS - BROWSER_HEIGHT) / 2;
-    const uint8_t MAX_VISIBLE = 14;  // Максимум видимых элементов (20 - рамка - заголовок - футер)
 
-    // Структура для навигации
-    ListNavigation nav = {
-        .current_item = 0,
-        .scroll_offset = 0,
-        .item_count = 0,
-        .max_visible = MAX_VISIBLE
-    };
+    ListNavigation nav = {0, 0, 0, BROWSER_MAX_VISIBLE};
+    bool exit_browser = false, file_selected = false;
 
-    bool exit_browser = false;
-    bool file_selected = false;
-
-    // Инициализируем начальный путь
     strcpy(current_path, "/XT");
 
     while (!exit_browser) {
-        // Загрузка списка файлов из текущей директории
         nav.item_count = 0;
 
-        // Добавляем ".." для возврата назад (если не в корне)
         if (strcmp(current_path, "/") != 0) {
             strcpy(files[nav.item_count].name, "..");
-            files[nav.item_count].is_dir = true;
-            nav.item_count++;
+            files[nav.item_count++].is_dir = true;
         }
 
-        // Открываем директорию
-        FRESULT res = f_opendir(dir, current_path);
-        if (res != FR_OK) {
-            // Если не удалось открыть, возвращаемся в корень
+        if (f_opendir(dir, current_path) != FR_OK) {
             strcpy(current_path, "/");
             f_opendir(dir, current_path);
         }
 
-        // Читаем файлы
-        while (nav.item_count < 50) {
-            res = f_readdir(dir, fno);
-            if (res != FR_OK || fno->fname[0] == 0) break;  // Конец списка
-
-            // Пропускаем скрытые файлы
+        while (nav.item_count < BROWSER_MAX_FILES) {
+            if (f_readdir(dir, fno) != FR_OK || fno->fname[0] == 0) break;
             if (fno->fname[0] == '.') continue;
 
-            // Проверяем фильтр для файлов
             if (!(fno->fattrib & AM_DIR)) {
-                // Это файл - проверяем расширение
                 const char* ext = strrchr(fno->fname, '.');
                 if (!ext || strcmp(ext, filter) != 0) continue;
             }
 
-            // Добавляем в список
-            strncpy(files[nav.item_count].name, fno->fname, sizeof(files[nav.item_count].name) - 1);
-            files[nav.item_count].name[sizeof(files[nav.item_count].name) - 1] = '\0';
-            files[nav.item_count].is_dir = (fno->fattrib & AM_DIR) != 0;
-            nav.item_count++;
+            strncpy(files[nav.item_count].name, fno->fname, sizeof(files[0].name) - 1);
+            files[nav.item_count].name[sizeof(files[0].name) - 1] = '\0';
+            files[nav.item_count++].is_dir = (fno->fattrib & AM_DIR) != 0;
         }
         f_closedir(dir);
 
-        // Если список пуст, добавляем хотя бы ".."
         if (nav.item_count == 0) {
             strcpy(files[0].name, "..");
             files[0].is_dir = true;
             nav.item_count = 1;
         }
 
-        // Сбрасываем позицию если вышли за пределы
         if (nav.current_item >= nav.item_count) {
             nav.current_item = nav.item_count - 1;
         }
 
-        // Отрисовка браузера
         char title[BROWSER_WIDTH + 1];
-        char footer[BROWSER_WIDTH + 1];
-
-        // Заголовок с текущим путем (обрезаем если длинный)
         if (strlen(current_path) > BROWSER_WIDTH - 4) {
             snprintf(title, sizeof(title), "...%s", current_path + strlen(current_path) - (BROWSER_WIDTH - 7));
         } else {
             snprintf(title, sizeof(title), "%s", current_path);
         }
 
-        snprintf(footer, sizeof(footer), "ENTER: Select  ESC: Disable disk");
+        draw_window(title, "ENTER: Select  ESC: Disable disk", BROWSER_X, BROWSER_Y, BROWSER_WIDTH, BROWSER_HEIGHT);
 
-        // Рисуем дочернее окно
-        draw_window(title, footer, BROWSER_X, BROWSER_Y, BROWSER_WIDTH, BROWSER_HEIGHT);
-
-        // Очищаем внутреннее пространство окна (заполняем пустыми строками)
-        char empty_line[BROWSER_WIDTH + 1];
-        memset(empty_line, ' ', BROWSER_WIDTH - 2);
-        empty_line[BROWSER_WIDTH - 2] = '\0';
-        for (uint8_t i = 0; i < MAX_VISIBLE; i++) {
-            draw_text(empty_line, BROWSER_X + 2, BROWSER_Y + 3 + i, 15, 1);
-        }
-
-        // Рисуем файлы
-        for (uint8_t i = 0; i < MAX_VISIBLE && (nav.scroll_offset + i) < nav.item_count; i++) {
+        for (uint8_t i = 0; i < BROWSER_MAX_VISIBLE && (nav.scroll_offset + i) < nav.item_count; i++) {
             uint8_t file_idx = nav.scroll_offset + i;
             char line[BROWSER_WIDTH + 1];
 
-            // Формируем строку с именем файла
-            if (files[file_idx].is_dir) {
-                snprintf(line, sizeof(line), "  [%s]", files[file_idx].name);
-            } else {
-                snprintf(line, sizeof(line), "  %s", files[file_idx].name);
-            }
+            snprintf(line, sizeof(line), files[file_idx].is_dir ? "  [%s]" : "  %s", files[file_idx].name);
 
-            // Ограничиваем длину строки и дополняем пробелами
             size_t len = strlen(line);
-            const size_t max_len = BROWSER_WIDTH - 4;  // Минус рамки и отступы
+            const size_t max_len = BROWSER_WIDTH - 4;
             if (len > max_len) {
-                line[max_len] = '\0';  // Обрезаем длинную строку
+                line[max_len] = '\0';
                 len = max_len;
             }
-            // Дополняем пробелами до фиксированной длины
-            while (len < max_len) {
-                line[len++] = ' ';
-            }
+            while (len < max_len) line[len++] = ' ';
             line[len] = '\0';
 
-            // Цвета: выбранный - инверсия, директория - голубой, файл - белый
-            uint8_t color, bgcolor;
-            if (file_idx == nav.current_item) {
-                color = 0;
-                bgcolor = 15;
-            } else if (files[file_idx].is_dir) {
-                color = 11;  // Голубой
-                bgcolor = 1;
-            } else {
-                color = 15;  // Белый
-                bgcolor = 1;
-            }
+            uint8_t color = (file_idx == nav.current_item) ? 0 : (files[file_idx].is_dir ? 11 : 15);
+            uint8_t bgcolor = (file_idx == nav.current_item) ? 15 : 1;
 
             draw_text(line, BROWSER_X + 2, BROWSER_Y + 3 + i, color, bgcolor);
         }
 
-        // Ожидаем нажатие клавиши
         uint8_t scancode = wait_for_scancode();
 
         switch (scancode) {
-            case 0x48: // UP Arrow
-                list_nav_up(&nav);
-                break;
+            case 0x48: list_nav_up(&nav); break;
+            case 0x50: list_nav_down(&nav); break;
 
-            case 0x50: // DOWN Arrow
-                list_nav_down(&nav);
-                break;
-
-            case 0x1C: // ENTER
+            case 0x1C:
                 if (files[nav.current_item].is_dir) {
-                    // Вход в директорию
                     if (strcmp(files[nav.current_item].name, "..") == 0) {
-                        // Возврат назад
                         char* last_slash = strrchr(current_path, '/');
                         if (last_slash && last_slash != current_path) {
-                            *last_slash = '\0';  // Обрезаем последнюю директорию
+                            *last_slash = '\0';
                         } else {
-                            strcpy(current_path, "/");  // Корень
+                            strcpy(current_path, "/");
                         }
                     } else {
-                        // Вход в поддиректорию
-                        if (strcmp(current_path, "/") != 0) {
-                            strcat(current_path, "/");
-                        }
+                        if (strcmp(current_path, "/") != 0) strcat(current_path, "/");
                         strcat(current_path, files[nav.current_item].name);
                     }
-                    nav.current_item = 0;
-                    nav.scroll_offset = 0;
+                    nav.current_item = nav.scroll_offset = 0;
                 } else {
-                    // Выбран файл
-                    if (strcmp(current_path, "/") != 0) {
-                        snprintf(selected_path, max_path_len, "%s/%s", current_path, files[nav.current_item].name);
-                    } else {
-                        snprintf(selected_path, max_path_len, "/%s", files[nav.current_item].name);
-                    }
-                    file_selected = true;
-                    exit_browser = true;
+                    snprintf(selected_path, max_path_len, (strcmp(current_path, "/") != 0) ? "%s/%s" : "/%s",
+                             current_path, files[nav.current_item].name);
+                    file_selected = exit_browser = true;
                 }
                 break;
 
-            case 0x01: // ESC - отключить диск
-                selected_path[0] = '\0';  // Пустая строка = диск отключен
-                file_selected = true;      // Считаем что "выбрано" пустое значение
-                exit_browser = true;
-                break;
-
-            default:
+            case 0x01:
+                selected_path[0] = '\0';
+                file_selected = exit_browser = true;
                 break;
         }
     }
 
-    // Освобождаем выделенную память
     free(dir);
     free(fno);
     free(files);
