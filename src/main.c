@@ -1,4 +1,5 @@
 // RP2350B Related libs
+
 #include <hardware/pwm.h>
 #include <pico/bootrom.h>
 #include <pico/multicore.h>
@@ -67,7 +68,7 @@ bool handleScancode(const uint8_t ps2scancode) {
 
 [[noreturn]] int main() {
     // IMPORTANT! Dont remove, hack to create .flashdata section for linker
-    extern uint32_t PICO_CLOCK_SPEED_MHZ;
+    extern const uint32_t PICO_CLOCK_SPEED_MHZ;
     assert(PICO_CLOCK_SPEED_MHZ == PICO_CLOCK_SPEED);
     vreg_disable_voltage_limit();
     vreg_set_voltage(VREG_VOLTAGE_1_65);
