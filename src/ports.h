@@ -102,6 +102,7 @@ __force_inline static uint8_t port_read8(const uint32_t address) {
             return uart_read(address);
         }
         default:
+            gpio_put(ISA_PIN, 0);
             return 0xFF;
     }
 }
@@ -227,6 +228,8 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
             // COM1 (Intel 16550 UART)
             return uart_write(address, data);
         }
+            default:
+            gpio_put(ISA_PIN, 0);
     }
 }
 
@@ -247,7 +250,7 @@ __force_inline static uint16_t port_read(const uint32_t address, const bool bhe)
     return byte << a0;
 
     // BHE=1, A0=1 -> невалидная комбинация (не используется в i8086)
-    // return 0xFFFF;
+    // return 0xFFFF;A
 }
 
 // ============================================================================

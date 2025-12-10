@@ -268,6 +268,27 @@ RP2350B has 2 PIO blocks (PIO0, PIO1), each with 4 state machines and 32 instruc
 - Device structures: `i8259_s`, `i8253_s`, `dma_channel_s`, `i8272_s`, `ide_s`, `uart_16550_s`, `mc6845_s`, `cga_s`
 - Helper functions: `write_to()` for BHE support
 
+**common.c** - Binary file imports and global data structures:
+- **IMPORT_BIN macro**: Imports binary files directly into FLASH memory at compile time
+  - Syntax: `IMPORT_BIN("path/to/file.bin", symbol_name)`
+  - Creates read-only array `uint8_t symbol_name[]` in `.flashdata` section
+  - **CRITICAL**: Imported data is READ-ONLY (stored in FLASH, not RAM)
+  - **Cannot be modified at runtime** - any "patching" must be done via conditional logic in memory_read()
+  - Example: `IMPORT_BIN("./binary/GLABIOS.ROM", BIOS)` creates `extern uint8_t BIOS[]`
+- **Current binary imports**:
+  - `BIOS[]` - Turbo XT BIOS v3.1 (8KB, read-only)
+  - `IDE[]` - XTIDE ROM (read-only)
+  - `FLOPPY[]` - Floppy disk image (read-only)
+- **Tandy mode patching example**: Since BIOS is read-only, patching is done in `memory_read()`:
+  ```c
+  // In memory.h - dynamic "patch" via conditional return
+  if (address == 0xFFFFE && settings.tandy_enabled) {
+      return 0xFF;  // Return patched value instead of BIOS[8190]
+  }
+  ```
+- Global device structures: `i8259`, `i8253`, `i8272`, `dma_channels[]`, `uart`, `mc6845`, `cga`, `ide`
+- RAM arrays: `RAM[]`, `UMB[]`, `VIDEORAM[]` (these ARE writable, in PSRAM/SRAM)
+
 **memory.h** - Memory emulation:
 - `memory_read()` / `memory_write()`: Handles RAM/ROM/VIDEORAM/UMB access
 - 4-byte aligned arrays for optimal performance
@@ -387,6 +408,21 @@ RP2350B has 2 PIO blocks (PIO0, PIO1), each with 4 state machines and 32 instruc
   - Auto-detection: When DOS driver sets DTR/RTS on COM1, sends identifier "M"
 - Works with DOS mouse drivers: CTMOUSE, MOUSE.COM (Microsoft Serial Mouse compatible)
 
+**setup.h / setup.c** - Configuration menu system:
+- **settings_s structure**: Project configuration (versioned for compatibility)
+  - `version` - Settings file version (uint16_t, current = SETTINGS_VERSION)
+  - `cpu_freq_index` - CPU frequency selector (0=1MHz, 1=4.75MHz, 2=6MHz)
+  - `tandy_enabled` - IBM PCjr/Tandy 1000 compatibility mode
+  - `fda`, `fdb`, `hdd` - Disk image paths (256 chars each)
+- **Settings versioning**: File format validation prevents loading incompatible configs
+  - Increment `SETTINGS_VERSION` when changing `settings_s` structure
+  - `load_settings()` checks version and file size - rejects mismatches
+  - Rejected configs → use default settings (prevents crashes from old/corrupt files)
+- **File browser**: SD card file selection with directory navigation
+- **Menu system**: Arrow key navigation, ENTER/ESC controls
+- **Persistence**: Saves to `/XT/config.sys` on SD card (binary format)
+- **Called before Core1 launch**: Settings loaded → SETUP menu → Core1 starts with selected config
+
 ## Memory Map
 
 **i8086 Address Space (1MB):**
@@ -398,6 +434,17 @@ RP2350B has 2 PIO blocks (PIO0, PIO1), each with 4 state machines and 32 instruc
 ```
 
 Reset vector at 0xFFFF0 points into ROM.
+
+**Special Memory Addresses (Tandy/PCjr compatibility):**
+- **0xFC000**: Tandy signature detection
+  - Returns `0x21` when `settings.tandy_enabled == 1`
+  - Returns `0xFFFF` (unmapped) when Tandy mode disabled
+  - Used by software to detect IBM PCjr/Tandy 1000 hardware
+- **0xFFFFE**: BIOS compatibility byte (dynamic patching)
+  - Returns `0xFF` when `settings.tandy_enabled == 1`
+  - Returns original BIOS value when Tandy mode disabled
+  - BIOS is read-only in FLASH - patching done via conditional logic in `memory_read()`
+  - See `common.c` section above for why IMPORT_BIN arrays cannot be modified at runtime
 
 **RP2350B Physical Memory (memmap.ld):**
 ```

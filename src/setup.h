@@ -37,10 +37,14 @@ typedef struct __attribute__((__packed__)) {
     };
 } MenuItem;
 
+// Версия структуры настроек (увеличивать при изменении структуры)
+#define SETTINGS_VERSION 1
+
 // Структура настроек проекта
 typedef struct {
+    uint16_t version;        // Версия структуры настроек
     uint8_t tandy_enabled;  // 0 = NO, 1 = YES
-    uint8_t turbo;          // 0 = DISABLED, 1 = ENABLED
+    uint8_t cpu_freq_index; // 0 = 1MHz, 1 = 4.75MHz, 2 = 6MHz
     char fda[256];           // Floppy #1 filename (увеличено для длинных путей)
     char fdb[256];           // Floppy #2 filename
     char hdd[256];           // HDD filename

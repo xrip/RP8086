@@ -22,8 +22,9 @@ extern uint8_t current_scancode;
 
 /* ----------------- Settings ----------------- */
 settings_s settings = {
+    .version = SETTINGS_VERSION,
     .tandy_enabled = 0,
-    .turbo = 1,
+    .cpu_freq_index = 2,  // По умолчанию 6MHz
     .fda = "/XT/fdd.img",
     .fdb = "",
     .hdd = "/XT/hdd.img",
@@ -32,11 +33,11 @@ settings_s settings = {
 /* --------- simplified menu description --------- */
 static const MenuItem menu_items[] = {
     {"Features:",  .colors = {14, 1}},
-    {"  Turbo 6MHz:              %s", ARRAY, &settings.turbo, nullptr, 1, {"DISABLED", "ENABLED"}},
+    {"  CPU Frequency:           %s", ARRAY, &settings.cpu_freq_index, nullptr, 2, {"1 MHz", "4.75 MHz", "6 MHz"}},
     {"  IBM PCjr/Tandy mode:     %s", ARRAY, &settings.tandy_enabled, nullptr, 1, {"NO", "YES"}},
     {""},
     {"Storage devices:",  .colors = {14, 1}},
-    {"  Floppy #1:               %s", STRING, settings.fda, nullptr, 255},
+    {"  Floppy#1:               %s", STRING, settings.fda, nullptr, 255},
     {"  Floppy #2:               %s", STRING, settings.fdb, nullptr, 255},
     {"  Hard drive:              %s", STRING, settings.hdd, nullptr, 255},
     {"At least Floppy #1 or HDD should be selected to bootup!", NONE, NULL, nullptr, .colors = {3, 1}},
@@ -111,6 +112,9 @@ bool save_settings(void) {
     FIL f;
     UINT bw;
 
+    // Устанавливаем текущую версию перед сохранением
+    settings.version = SETTINGS_VERSION;
+
     if (f_open(&f, CONFIG_FILE, FA_CREATE_ALWAYS | FA_WRITE) != FR_OK)
         return false;
 
@@ -123,14 +127,24 @@ bool save_settings(void) {
 bool load_settings(void) {
     FIL f;
     UINT br;
+    settings_s temp_settings;
 
     if (f_open(&f, CONFIG_FILE, FA_READ) != FR_OK)
         return false;
 
-    f_read(&f, &settings, sizeof(settings), &br);
+    // Читаем настройки во временную структуру
+    f_read(&f, &temp_settings, sizeof(temp_settings), &br);
     f_close(&f);
 
-    return br == sizeof(settings);
+    // Проверяем размер файла и версию структуры
+    if (br != sizeof(settings) || temp_settings.version != SETTINGS_VERSION) {
+        // Версия не совпадает или размер не тот - используем настройки по умолчанию
+        return false;
+    }
+
+    // Версия совпадает - копируем настройки
+    settings = temp_settings;
+    return true;
 }
 
 

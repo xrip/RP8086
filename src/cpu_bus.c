@@ -12,11 +12,13 @@ static uint16_t irq_pending_vector = 0;
 // ============================================================================
 
 __force_inline static uint16_t i8086_read(const uint32_t address, const bool is_memory_access, const bool bhe) {
+    gpio_put(ISA_PIN, 1);
     return is_memory_access ? memory_read(address  & 0xFFFFE) : port_read(address & 0xFFF, bhe);
 }
 
 __force_inline static void i8086_write(const uint32_t address, const uint16_t data,
                                         const bool is_memory_access, const bool bhe) {
+    gpio_put(ISA_PIN, 1);
     return is_memory_access ? memory_write(address, data, bhe) : port_write(address, data, bhe);
 }
 

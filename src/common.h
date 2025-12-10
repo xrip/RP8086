@@ -41,7 +41,8 @@
 #define RESET_PIN        28             // Reset output (active HIGH)
 #define CLOCK_PIN        29             // Clock output to i8086
 
-#define BEEPER_PIN        46            // PC Speaker pin]
+#define ISA_PIN          45             //
+#define BEEPER_PIN        46            // PC Speaker pin
 
 
 // ============================================================================
@@ -329,6 +330,6 @@ static void psram_init(const int cs_pin) {
 }
 
 void cpu_bus_init();
-void start_cpu_clock(void);
+void start_cpu_clock(uint32_t frequency_khz);
 void reset_cpu(void);
 void mc6845_init_text_mode(void);  // Инициализация MC6845 для текстового режима 80x25
