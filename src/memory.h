@@ -1,5 +1,6 @@
 #pragma once
 #include "common.h"
+#include "setup.h"
 
 // ============================================================================
 // External Memory Arrays
@@ -43,15 +44,20 @@ __force_inline static uint16_t memory_read(const uint32_t address) {
         // return *(uint16_t *)&UMB[address - 0xD0000];
     // }
 
-    if (address == 0xFC000) {
-        return 0x21; // Tandy hack
+    if (address == 0xFC000 && settings.tandy_enabled) {
+        return 0x21; // Tandy signature
     }
 
     if (address >= BIOS_ROM_BASE) {
+        // Патчим предпоследний байт BIOS для Tandy режима
+        if (unlikely(address == 0xFFFFE && settings.tandy_enabled)) {
+            return 0xFF; // TODO: IBM PC Jr = 0xFD, Tandy 1000 = 0xFF
+        }
         return *(uint16_t *)&BIOS[address - BIOS_ROM_BASE];
     }
 
     // Unmapped memory
+    gpio_put(ISA_PIN, 0);
     return 0xFFFF;
 }
 
@@ -69,9 +75,11 @@ __force_inline static void memory_write(const uint32_t address, const uint16_t d
         return;
     }
 
-    if ((address - 0xD0000) < UMB_SIZE) {
-        write_to(UMB, address - 0xD0000, data, bhe);
-    }
+    // if ((address - 0xD0000) < UMB_SIZE) {
+        // write_to(UMB, address - 0xD0000, data, bhe);
+        // return;
+    // }
 
+    gpio_put(ISA_PIN, 0);
     // ROM areas are read-only, ignore writes
 }

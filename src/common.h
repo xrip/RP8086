@@ -41,7 +41,8 @@
 #define RESET_PIN        28             // Reset output (active HIGH)
 #define CLOCK_PIN        29             // Clock output to i8086
 
-#define BEEPER_PIN        46            // PC Speaker pin]
+#define ISA_PIN          45             //
+#define BEEPER_PIN        46            // PC Speaker pin
 
 
 // ============================================================================
@@ -208,7 +209,7 @@ typedef struct {
     uint8_t high_byte;
 
     uint8_t current_command;
-    uint8_t sectors_remaining;
+    uint16_t sectors_remaining;
 } ide_s;
 
 // Corrected CGA palette from https://int10h.org/blog/2022/06/ibm-5153-color-true-cga-palette/
@@ -220,7 +221,7 @@ constexpr uint32_t cga_palette[16] = {
     0x00AAAA, // 3: cyan
     0xAA0000, // 4: red
     0xAA00AA, // 5: magenta
-    0xAAAA00, // 6: brown
+    0xAAAA00, // 6: brown. should be aa5500
     0xAAAAAA, // 7: light gray
 
     0x555555, // 8: dark gray
@@ -329,5 +330,6 @@ static void psram_init(const int cs_pin) {
 }
 
 void cpu_bus_init();
-void start_cpu_clock(void);
+void start_cpu_clock(uint32_t frequency_khz);
 void reset_cpu(void);
+void mc6845_init_text_mode(void);  // Инициализация MC6845 для текстового режима 80x25

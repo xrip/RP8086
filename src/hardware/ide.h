@@ -74,14 +74,19 @@ static uint32_t ide_get_lba() {
     return ((uint32_t) cylinder * heads + head) * sectors + (sector - 1);
 }
 
-// Увеличить LBA регистры (low->mid->high), учесть carry
+// Увеличить LBA регистры (low->mid->high->device[3:0]), учесть carry для LBA28
 static void increment_lba_regs() {
     ide.regs[IDE_LBA_LOW]++;
     if (ide.regs[IDE_LBA_LOW] == 0) {
         ide.regs[IDE_LBA_MID]++;
         if (ide.regs[IDE_LBA_MID] == 0) {
             ide.regs[IDE_LBA_HIGH]++;
-            // DEVICE high nibble (LBA28) не трогаем здесь — оно изменяется только при необходимости
+            if (ide.regs[IDE_LBA_HIGH] == 0) {
+                // Переполнение LBA_HIGH - инкрементируем младшие 4 бита DEVICE для LBA28
+                // Биты 7:4 DEVICE сохраняем (бит 6 = LBA mode flag, бит 4 = drive select)
+                ide.regs[IDE_DEVICE] = (ide.regs[IDE_DEVICE] & 0xF0) |
+                                       ((ide.regs[IDE_DEVICE] + 1) & 0x0F);
+            }
         }
     }
 }
@@ -106,26 +111,97 @@ static int write_sector_to_disk(const uint32_t LBA) {
     return 0;
 }
 
-// --- Реализация команд (упрощённо) ---
+// --- Реализация команд согласно ATA-1 спецификации ---
 static void ide_identify() {
+    // Очистить буфер 512 байт
     memset(ide.sector_buffer, 0, 512);
+    uint16_t* identify = (uint16_t*)ide.sector_buffer;
 
+    // Рассчитать геометрию диска
     uint32_t total_sectors = 0;
-    if (ide.disk_image) total_sectors = (uint32_t) (f_size(ide.disk_image) / 512);
+    if (ide.disk_image) total_sectors = (uint32_t)(f_size(ide.disk_image) / 512);
 
     uint32_t cylinders = (total_sectors / (heads * sectors));
     if (cylinders < 1) cylinders = 1;
     if (cylinders > 16383) cylinders = 16383;
 
-    ide.sector_buffer[0] = 0x40;
-    ide.sector_buffer[1] = (uint8_t)(cylinders >> 8);
-    ide.sector_buffer[2] = (uint8_t)(cylinders & 0xFF);
-    ide.sector_buffer[6] = heads;
-    ide.sector_buffer[12] = sectors;
+    // Word 0: General configuration
+    // Бит 6 = 1: Fixed disk (non-removable)
+    // Бит 7 = 0: ATA device
+    identify[0] = 0x0040;
 
-    ide_padstr(&ide.sector_buffer[20], "", 10);
-    ide_padstr(&ide.sector_buffer[46], "v1.0", 4);
-    ide_padstr(&ide.sector_buffer[54], "SD:\\XT\\HDD.IMG", 20);
+    // Word 1-3: Default CHS geometry (obsolete but required for old BIOS)
+    identify[1] = (uint16_t)cylinders;  // Cylinders
+    identify[2] = 0;                     // Reserved
+    identify[3] = heads;                 // Heads
+    identify[4] = sectors * 512;         // Unformatted bytes per track (obsolete)
+    identify[5] = 512;                   // Unformatted bytes per sector (obsolete)
+    identify[6] = sectors;               // Sectors per track
+
+    // Word 7-9: Reserved for CompactFlash
+    identify[7] = 0;
+    identify[8] = 0;
+    identify[9] = 0;
+
+    // Word 10-19: Serial number (20 ASCII characters, byte-swapped)
+    ide_padstr(&ide.sector_buffer[20], "RP8086-XTIDE-001", 20);
+
+    // Word 20-22: Buffer type/size (obsolete, set 0)
+    identify[20] = 0;
+    identify[21] = 0;
+    identify[22] = 0;
+
+    // Word 23-26: Firmware revision (8 ASCII characters, byte-swapped)
+    ide_padstr(&ide.sector_buffer[46], "v1.0", 8);
+
+    // Word 27-46: Model number (40 ASCII characters, byte-swapped)
+    // Простое решение - использовать константу, т.к. settings может быть недоступен в header-only файле
+    // TODO: передавать model_name через параметры или использовать глобальную переменную
+    ide_padstr(&ide.sector_buffer[54], "HDD IMAGE ON SD", 40);
+
+    // Word 47: Multiple sector transfer (bits 7:0 = max sectors per interrupt)
+    // 0x8000 = valid, 0x0001 = max 1 sector (can be expanded to 0x80xx for multi-sector)
+    identify[47] = 0x8001;
+
+    // Word 48: Reserved (0 for ATA-1)
+    identify[48] = 0;
+
+    // Word 49: Capabilities
+    // Бит 9 = 1: LBA supported
+    // Бит 8 = 0: DMA not supported
+    identify[49] = 0x0200;
+
+    // Word 50: Reserved
+    identify[50] = 0;
+
+    // Word 51-52: PIO timing modes (obsolete, set 0)
+    identify[51] = 0;
+    identify[52] = 0;
+
+    // Word 53: Field validity
+    // Бит 0 = 1: Words 54-58 are valid
+    // Бит 1 = 1: Words 64-70 are valid (для ATA-2+)
+    identify[53] = 0x0001;
+
+    // Word 54-56: Current CHS geometry (same as words 1,3,6 if not translated)
+    identify[54] = (uint16_t)cylinders;  // Current cylinders
+    identify[55] = heads;                 // Current heads
+    identify[56] = sectors;               // Current sectors per track
+
+    // Word 57-58: Current capacity in sectors (CHS mode)
+    uint32_t chs_capacity = cylinders * heads * sectors;
+    identify[57] = (uint16_t)(chs_capacity & 0xFFFF);        // Low word
+    identify[58] = (uint16_t)((chs_capacity >> 16) & 0xFFFF); // High word
+
+    // Word 59: Multiple sector setting (currently valid sector count per interrupt)
+    // 0x0001 = 1 sector valid
+    identify[59] = 0x0001;
+
+    // Word 60-61: Total addressable sectors in LBA mode (little-endian 32-bit)
+    identify[60] = (uint16_t)(total_sectors & 0xFFFF);        // Low word
+    identify[61] = (uint16_t)((total_sectors >> 16) & 0xFFFF); // High word
+
+    // Word 62-127: Reserved/vendor-specific (оставляем 0)
 
     ide_set_drq();
 }
@@ -136,24 +212,50 @@ static void read_sector(void) {
         return;
     }
 
+    const uint8_t sectors_count = ide.regs[IDE_SEC_COUNT];
+    const uint16_t total_sectors = (sectors_count == 0) ? 256 : sectors_count;
     const uint32_t LBA = ide_get_lba();
+
+    // Проверка границ диска
+    const uint32_t max_lba = (uint32_t)(f_size(ide.disk_image) / 512);
+    if (LBA + total_sectors > max_lba) {
+        debug_log("IDE: Read out of bounds! LBA=%lu+%u > %lu\n", (unsigned long)LBA, (unsigned)total_sectors, (unsigned long)max_lba);
+        ide_set_error(0x10); // ID not found (sector not found)
+        return;
+    }
+
     const int result = load_sector_from_disk(LBA);
     if (result != 0) {
-        debug_log("IDE: Read error LBA=%lu ret=%d\n", (unsigned long)LBA, res);
+        debug_log("IDE: Read error LBA=%lu ret=%d\n", (unsigned long)LBA, result);
         ide_set_error(0x40);
         return;
     }
 
-    const uint8_t sectors_count = ide.regs[IDE_SEC_COUNT];
-    ide.sectors_remaining = (sectors_count == 0) ? 1 : sectors_count;
+    ide.sectors_remaining = total_sectors;
 
     debug_log("IDE: cmd_read_sector - sectors_remaining=%u LBA=%lu\n", (unsigned)ide.sectors_remaining, (unsigned long)LBA);
     ide_set_drq();
 }
 
 static void write_sector(void) {
+    if (!ide.disk_image) {
+        ide_set_error(0x04);
+        return;
+    }
+
     const uint8_t sectors_count = ide.regs[IDE_SEC_COUNT];
-    ide.sectors_remaining = (sectors_count == 0) ? 1 : sectors_count;
+    const uint16_t total_sectors = (sectors_count == 0) ? 256 : sectors_count;
+    const uint32_t LBA = ide_get_lba();
+
+    // Проверка границ диска
+    const uint32_t max_lba = (uint32_t)(f_size(ide.disk_image) / 512);
+    if (LBA + total_sectors > max_lba) {
+        debug_log("IDE: Write out of bounds! LBA=%lu+%u > %lu\n", (unsigned long)LBA, (unsigned)total_sectors, (unsigned long)max_lba);
+        ide_set_error(0x10); // ID not found (sector not found)
+        return;
+    }
+
+    ide.sectors_remaining = total_sectors;
     debug_log("IDE: cmd_write_sector - sectors_remaining=%u\n", (unsigned)ide.sectors_remaining);
     ide_set_drq();
 }

@@ -1,4 +1,5 @@
 // RP2350B Related libs
+
 #include <hardware/pwm.h>
 #include <pico/bootrom.h>
 #include <pico/multicore.h>
@@ -15,6 +16,7 @@
 #include "ff.h"
 #include "f_util.h"
 #include <debug.h>
+#include "setup.h"
 extern cga_s cga;
 extern mc6845_s mc6845;
 extern ide_s ide;
@@ -38,10 +40,18 @@ static inline void pic_init(void) {
 // ============================================================================
 
 [[noreturn]] void bus_handler_core(void) {
-    start_cpu_clock(); // Start i8086 clock generator
+    // Таблица частот: индекс 0 = 1MHz, 1 = 4.75MHz, 2 = 6MHz
+    static const uint32_t cpu_frequencies[] = {1000, 4750, 6000};
+    const uint32_t cpu_freq = cpu_frequencies[settings.cpu_freq_index];
+
+    start_cpu_clock(cpu_freq); // Start i8086 clock generator
     pic_init(); // Initialize interrupt controller and start Core1 IRQ generator
     cpu_bus_init(); // Initialize bus BEFORE releasing i8086 from reset
     reset_cpu(); // Now i8086 can safely start
+
+    gpio_init(ISA_PIN);
+    gpio_set_dir(ISA_PIN, GPIO_OUT);
+    gpio_put(ISA_PIN, 1); // По умолчанию HI
 
     while (true) {
         // Управление сигналом INTR
@@ -66,7 +76,7 @@ bool handleScancode(const uint8_t ps2scancode) {
 
 [[noreturn]] int main() {
     // IMPORTANT! Dont remove, hack to create .flashdata section for linker
-    extern uint32_t PICO_CLOCK_SPEED_MHZ;
+    extern const uint32_t PICO_CLOCK_SPEED_MHZ;
     assert(PICO_CLOCK_SPEED_MHZ == PICO_CLOCK_SPEED);
     vreg_disable_voltage_limit();
     vreg_set_voltage(VREG_VOLTAGE_1_65);
@@ -85,6 +95,7 @@ bool handleScancode(const uint8_t ps2scancode) {
     debug_init();
     FIL floppy_files[2];
     FIL hdd_file;  // Файл HDD образа
+
     // Mount SD card filesystem
     if (FR_OK != f_mount(&fs, "", 1)) {
         // while (!stdio_usb_connected()) { tight_loop_contents(); }
@@ -92,40 +103,63 @@ bool handleScancode(const uint8_t ps2scancode) {
         reset_usb_boot(0, 0);
     }
 
-    // Открываем первую дискетку (обязательная)
-    if (FR_OK != f_open(&floppy_files[0], "\\XT\\fdd.img", FA_READ | FA_WRITE)) {
-        // while (!stdio_usb_connected()) { tight_loop_contents(); }
-        printf("Floppy image not found!");
-        reset_usb_boot(0, 0);
+    // Инициализация графики ДО запуска SETUP меню
+    graphics_init();
+    for (int i = 0; i < 16; i++) {
+        graphics_set_palette(i, cga_palette[i]);
     }
 
-    // Открываем вторую дискетку (опциональная)
-    if (FR_OK != f_open(&floppy_files[1], "\\XT\\fdd1.img", FA_READ | FA_WRITE)) {
-        printf("Warning: Second floppy image (fdd1.img) not found, drive B: will be unavailable\n");
+    // Инициализация MC6845 CRTC для текстового режима 80x25
+    mc6845_init_text_mode();
+
+    graphics_set_mode(TEXTMODE_80x25_COLOR);
+    sleep_ms(100);  // Даем VGA драйверу время на инициализацию
+
+    // Загружаем настройки с SD карты
+    load_settings();
+
+    // Запуск SETUP меню (до загрузки дисков и старта второго ядра)
+    setup_menu();
+
+    // Открываем первую дискетку (обязательная) - используем путь из settings
+    if (settings.fda[0] != '\0') {
+        if (FR_OK != f_open(&floppy_files[0], settings.fda, FA_READ | FA_WRITE)) {
+            printf("Floppy image not found: %s\n", settings.fda);
+            // reset_usb_boot(0, 0);
+        }
     }
 
-    // Открываем HDD образ
+    // Открываем вторую дискетку (опциональная) - используем путь из settings
+    if (settings.fdb[0] != '\0') {
+        if (FR_OK != f_open(&floppy_files[1], settings.fdb, FA_READ | FA_WRITE)) {
+            printf("Warning: Second floppy image (%s) not found, drive B: will be unavailable\n", settings.fdb);
+        }
+    } else {
+        printf("Floppy B: disabled (no image selected)\n");
+    }
+
+    // Открываем HDD образ - используем путь из settings
     ide.disk_image = &hdd_file;
-    if (FR_OK != f_open(ide.disk_image, "\\XT\\hdd.img", FA_READ | FA_WRITE)) {
-        printf("Warning: HDD image (hdd.img) not found, drive C: will be unavailable\n");
-        ide.disk_image = nullptr;  // Сбрасываем указатель если диск не найден
+    if (settings.hdd[0] != '\0') {
+        if (FR_OK != f_open(ide.disk_image, settings.hdd, FA_READ | FA_WRITE)) {
+            printf("Warning: HDD image (%s) not found, drive C: will be unavailable\n", settings.hdd);
+            ide.disk_image = nullptr;  // Сбрасываем указатель если диск не найден
+        }
+    } else {
+        printf("HDD disabled (no image selected)\n");
+        ide.disk_image = nullptr;
     }
-
 
     pwm = pwm_get_default_config();
     gpio_set_function(BEEPER_PIN, GPIO_FUNC_PWM);
     pwm_config_set_clkdiv(&pwm, 127);
     pwm_init(pwm_gpio_to_slice_num(BEEPER_PIN), &pwm, true);
 
+    // Запуск второго ядра с i8086
     multicore_launch_core1(bus_handler_core);
 
     absolute_time_t next_frame = get_absolute_time();
     next_frame = delayed_by_us(next_frame, 16666);
-    graphics_init();
-    graphics_set_mode(TEXTMODE_80x25_BW);
-    for (int i = 0; i < 16; i++) {
-        graphics_set_palette(i, cga_palette[i]);
-    }
 
     uint32_t frame_counter = 0;
     uint8_t old_videomode = 0;

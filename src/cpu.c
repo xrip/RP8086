@@ -3,14 +3,14 @@
 #include <hardware/pwm.h>
 
 
-void start_cpu_clock(void)
+void start_cpu_clock(uint32_t frequency_khz)
 {
     // Calculate divider and wrap for best precision
     uint32_t div = 1;
     uint32_t wrap;
 
     while (div < 256) {
-        wrap = (PICO_CLOCK_SPEED / (div * I8086_CLOCK_SPEED)) - 1;
+        wrap = (PICO_CLOCK_SPEED / (div * (frequency_khz * KHZ))) - 1;
         if (wrap <= 65535) break;
         div *= 10;  // Try 1, 10, 100, 1000
     }

@@ -36,6 +36,7 @@ add_executable(${PROJECT_NAME}
         src/cpu.c
         src/cpu_bus.c
         src/common.c
+        src/setup.c
 )
 
 if(VGA)

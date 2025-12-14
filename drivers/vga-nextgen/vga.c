@@ -63,22 +63,22 @@ static uint16_t palette[256] __attribute__((aligned(4)));
 static uint16_t textmode_palette_lut[256 * 4] __attribute__((aligned(4)));
 
 constexpr uint16_t textmode_palette[16] __attribute__((aligned(4))) = {
-    0b000000 & 0x3f | 0xc0,
-    0b000001 & 0x3f | 0xc0,
-    0b000100 & 0x3f | 0xc0,
-    0b000101 & 0x3f | 0xc0,
-    0b010000 & 0x3f | 0xc0,
-    0b010001 & 0x3f | 0xc0,
-    0b010100 & 0x3f | 0xc0,
-    0b010101 & 0x3f | 0xc0,
-    0b101010 & 0x3f | 0xc0,
-    0b000011 & 0x3f | 0xc0,
-    0b001100 & 0x3f | 0xc0,
-    0b001111 & 0x3f | 0xc0,
-    0b110000 & 0x3f | 0xc0,
-    0b110011 & 0x3f | 0xc0,
-    0b111100 & 0x3f | 0xc0,
-    0b111111 & 0x3f | 0xc0,
+    0b000000 & 0x3f | 0xc0, // 0 - Black
+    0b000001 & 0x3f | 0xc0, // 1 - Blue
+    0b000100 & 0x3f | 0xc0, // 2 - Green
+    0b000101 & 0x3f | 0xc0, // 3 - Cyan
+    0b010000 & 0x3f | 0xc0, // 4 - Red
+    0b010001 & 0x3f | 0xc0, // 5 - Magenta
+    0b110100 & 0x3f | 0xc0, // 6 - Brown
+    0b010101 & 0x3f | 0xc0, // 7 - Light Gray
+    0b101010 & 0x3f | 0xc0, // 8 - Dark Gray
+    0b000011 & 0x3f | 0xc0, // 9 - Light Blue
+    0b001100 & 0x3f | 0xc0, // 10 - Light Green
+    0b001111 & 0x3f | 0xc0, // 11 - Light Cyan
+    0b110000 & 0x3f | 0xc0, // 12 - Light Red
+    0b110011 & 0x3f | 0xc0, // 13 - Light Magenta
+    0b111100 & 0x3f | 0xc0, // 14 - Yellow
+    0b111111 & 0x3f | 0xc0, // 15 - White
 };
 
 enum graphics_mode_t graphics_mode;

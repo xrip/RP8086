@@ -102,6 +102,7 @@ __force_inline static uint8_t port_read8(const uint32_t address) {
             return uart_read(address);
         }
         default:
+            gpio_put(ISA_PIN, 0);
             return 0xFF;
     }
 }
@@ -162,7 +163,7 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
         case 0x3D4:
         case 0x3D6:
             crtc_index = data;
-            break;
+            return;
         case 0x3B1:
         case 0x3B3:
         case 0x3B5:
@@ -182,7 +183,7 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
             const uint16_t cursor_offset = (mc6845.r.cursor_addr_h << 8 | mc6845.r.cursor_addr_l);
             mc6845.cursor_x = cursor_offset % mc6845.r.h_displayed;
             mc6845.cursor_y = cursor_offset / mc6845.r.h_displayed;
-            break;
+            return;
         case 0x3B8:
         case 0x3D8: {
             cga.port3D8 = data; // Store the raw register value
@@ -227,6 +228,8 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
             // COM1 (Intel 16550 UART)
             return uart_write(address, data);
         }
+            default:
+            gpio_put(ISA_PIN, 0);
     }
 }
 
@@ -247,7 +250,7 @@ __force_inline static uint16_t port_read(const uint32_t address, const bool bhe)
     return byte << a0;
 
     // BHE=1, A0=1 -> невалидная комбинация (не используется в i8086)
-    // return 0xFFFF;
+    // return 0xFFFF;A
 }
 
 // ============================================================================
