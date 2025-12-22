@@ -41,7 +41,7 @@ static inline void pic_init(void) {
 
 [[noreturn]] void bus_handler_core(void) {
     // Таблица частот: индекс 0 = 1MHz, 1 = 4.75MHz, 2 = 6MHz
-    static const uint32_t cpu_frequencies[] = {1000, 4750, 6000};
+    static constexpr uint32_t cpu_frequencies[] = {1000, 4750, 6000};
     const uint32_t cpu_freq = cpu_frequencies[settings.cpu_freq_index];
 
     start_cpu_clock(cpu_freq); // Start i8086 clock generator
