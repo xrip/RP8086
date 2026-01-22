@@ -5,8 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 RP8086 is a hardware-software complex that uses a Raspberry Pi Pico (RP2350B) as a complete chipset for the Intel 8086 processor. The RP2350B acts as:
-- Bus controller (via PIO0 state machine at 500 MHz)
-- ROM/RAM emulator (736KB RAM via external PSRAM + 16KB VRAM + 8KB BIOS)
+- Bus controller (via PIO0 state machine at 504 MHz)
+- ROM/RAM emulator (736KB RAM via external PSRAM + 32KB VRAM + 8KB BIOS)
 - I/O controller (Intel 8259A, 8253, 8237, 8272A, XTIDE, 16550 UART, i8042 keyboard controller emulation)
 - Clock generator (4.75-6 MHz PWM, 33% duty cycle, configurable)
 - CGA/PCjr video adapter with hardware VGA output (GPIO 30-37 via PIO1 and R-2R DAC)
@@ -81,7 +81,7 @@ cmake --build .
   - **SCRATCH_X/Y**: 4KB each at 0x20080000/0x20081000 (fast scratchpad memory)
 - **Size optimizations**: `--wrap=atexit`, `--wrap=abort`, `--strip-all`, `--gc-sections`
 - **Standards**: C23 and C++23
-- **System clock**: 500 MHz (overclocked with voltage boost to 1.60V)
+- **System clock**: 504 MHz (overclocked with voltage boost to 1.65V)
 - **i8086 clock**: 4.75-6 MHz (configurable via `I8086_CLOCK_SPEED` in common.h)
 
 **Conditional compilation:**
@@ -107,13 +107,13 @@ SCRATCH_Y (4KB)      : Core1 fast scratchpad
 ### Two-Layer Bus Design
 
 **Layer 1: PIO (Hardware - i8086_bus.pio)**
-- Runs independently on RP2350B's Programmable I/O state machine at 500 MHz (clkdiv = 1.0, no frequency divider)
+- Runs independently on RP2350B's Programmable I/O state machine at 504 MHz (clkdiv = 1.0, no frequency divider)
 - Handles all timing-critical bus operations in hardware
 - Manages i8086 bus signals: ALE, RD, WR, M/IO, BHE, INTA, READY
 - Controls bidirectional data bus (GPIO 0-15)
 - Generates interrupts (IRQ0 for writes, IRQ1 for reads, IRQ3 for INTA)
 - 32-bit protocol: ARM returns `[data:16][pindirs_mask:16]` for ISA-compatibility
-- PIO clock runs at full system frequency (500 MHz) without divider for maximum timing precision
+- PIO clock runs at full system frequency (504 MHz) without divider for maximum timing precision
 
 **Layer 2: ARM Cortex-M33 (Software - cpu_bus.c)**
 - Services interrupts from PIO via FIFO
@@ -124,7 +124,7 @@ SCRATCH_Y (4KB)      : Core1 fast scratchpad
 ### Multicore Architecture
 
 **Core0 (Main) - User Interface & I/O:**
-- System initialization (overclock to 500 MHz, USB Host init, PSRAM init, SD card mount, VGA init)
+- System initialization (overclock to 504 MHz, USB Host init, PSRAM init, SD card mount, VGA init)
 - Launches Core1 via `multicore_launch_core1(bus_handler_core)`
 - Main loop responsibilities:
   - **USB HID processing (TinyUSB stack)**:
@@ -177,6 +177,7 @@ SCRATCH_Y (4KB)      : Core1 fast scratchpad
 - GPIO 41: SD_CS (SPI1 - SD Card Chip Select)
 - GPIO 42: SD_SCK (SPI1 - SD Card Clock)
 - GPIO 43: SD_MOSI (SPI1 - SD Card Master Out Slave In)
+- GPIO 45: ISA_PIN (ISA bus active indicator, directly controlled by memory/port handlers)
 - GPIO 46: BEEPER (PC Speaker PWM output, emulates i8253 PIT Channel 2)
 - GPIO 47: PSRAM_CS (Chip Select for external PSRAM, 736KB RAM via QMI)
 
@@ -185,7 +186,7 @@ SCRATCH_Y (4KB)      : Core1 fast scratchpad
 - RP2350B is 5V tolerant on inputs, allowing direct connection to i8086 (5V logic) without level shifters
 - VGA video driver uses PIO1 with R-2R DAC for analog signal generation
 - SD Card uses SPI1 bus for loading floppy disk images and file systems
-- Total GPIO usage: 44 pins (0-15: AD bus, 16-19: A bus, 20-29: control signals, 30-37: VGA, 40-43: SD, 46: speaker, 47: PSRAM)
+- Total GPIO usage: 45 pins (0-15: AD bus, 16-19: A bus, 20-29: control signals, 30-37: VGA, 40-43: SD, 45: ISA, 46: speaker, 47: PSRAM)
 
 ### PIO Resources Allocation
 
@@ -195,7 +196,7 @@ RP2350B has 2 PIO blocks (PIO0, PIO1), each with 4 state machines and 32 instruc
 - State Machine 0: i8086 bus protocol handler (i8086_bus.pio)
 - Instruction memory: 29/32 instructions used (3 reserved for future)
 - IRQ usage: IRQ0 (writes), IRQ1 (reads), IRQ3 (INTA cycles)
-- Runs at 500 MHz (clkdiv = 1.0) for maximum timing precision
+- Runs at 504 MHz (clkdiv = 1.0) for maximum timing precision
 - Sideset: READY signal for wait state control
 
 **PIO1 (Video Controller):**
@@ -253,7 +254,7 @@ RP2350B has 2 PIO blocks (PIO0, PIO1), each with 4 state machines and 32 instruc
 - CTTY mode support (direct COM1/USB terminal mode)
 - SD card management: loads floppy and HDD disk images (.img) from FAT filesystem
 
-**cpu.c/h** - i8086 CPU control:
+**cpu.c** - i8086 CPU control (functions declared in common.h):
 - `start_cpu_clock()`: PWM generation for i8086 clock (33% duty cycle)
 - `reset_cpu()`: RESET sequence
 
