@@ -51,6 +51,15 @@
 #define MIO (1 << 24)  // Memory/IO bit in bus state
 #define BHE (1 << 25)  // Bus High Enable bit in bus state
 
+// Ответ PIO: [данные:16][маска направлений:16]. Маска 0 оставляет шину входом.
+__force_inline static uint32_t bus_read_response8(const uint8_t data) {
+    return ((uint32_t) data << 16) | 0x00FFu;
+}
+
+__force_inline static uint32_t bus_read_response16(const uint16_t data) {
+    return ((uint32_t) data << 16) | 0xFFFFu;
+}
+
 
 // ============================================================================
 // PIO Configuration

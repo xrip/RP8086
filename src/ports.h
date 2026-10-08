@@ -27,34 +27,35 @@ extern mc6845_s mc6845;
 static uint8_t crtc_index = 0;
 static uint8_t tga_index = 0;
 
-__force_inline static uint8_t port_read8(const uint32_t address) {
+// Возвращает данные байта в битах 16-23 и маску его линий в битах 0-7.
+__force_inline static uint32_t port_read8(const uint32_t address) {
     // if (address >= 0x300)
     // printf("port read %03x\n", address);
     switch (address) {
         case 0x3D4:
-            return crtc_index;
+            return bus_read_response8(crtc_index);
         case 0x3D5:
-            return mc6845.registers[crtc_index];
+            return bus_read_response8(mc6845.registers[crtc_index]);
         case 0x3D8:
-            return cga.port3D8;
+            return bus_read_response8(cga.port3D8);
         case 0x3D9:
-            return cga.port3D9;
+            return bus_read_response8(cga.port3D9);
         case 0x3DA: // MC6845 status port
-            return port3DA;
+            return bus_read_response8(port3DA);
         case 0 ... 0x0F: {
-            return i8237_readport(address);
+            return bus_read_response8(i8237_readport(address));
         }
 
         case 0x20 ... 0x21: {
-            return i8259_read(address);
+            return bus_read_response8(i8259_read(address));
         }
         case 0x40 ... 0x42: {
-            return i8253_read(address);
+            return bus_read_response8(i8253_read(address));
         }
         case 0x60:
-            return current_scancode;
+            return bus_read_response8(current_scancode);
         case 0x61:
-            return port61;
+            return bus_read_response8(port61);
         case 0x62: {
             uint8_t r = 0;
             if (port61 & 0x8) {
@@ -65,7 +66,7 @@ __force_inline static uint8_t port_read8(const uint32_t address) {
             } else {
                 r |= 0x4;
             }
-            return r;
+            return bus_read_response8(r);
         }
         case 0x64: {
             // Keyboard Controller Status Register (Intel 8042)
@@ -83,27 +84,27 @@ __force_inline static uint8_t port_read8(const uint32_t address) {
                 status |= 0x01;
             }
 
-            return status;
+            return bus_read_response8(status);
         }
         case 0x81:
         case 0x82:
         case 0x83:
         case 0x87: {
-            return i8237_readpage(address);
+            return bus_read_response8(i8237_readpage(address));
         }
         case 0x300 ... 0x308: {
-            return ide_read(address);
+            return bus_read_response8(ide_read(address));
         }
         case 0x3F4: case 0x3F5: {
-            return i8272_readport(address);
+            return bus_read_response8(i8272_readport(address));
         }
         case 0x3F8 ... 0x3FF: {
             // COM1 (Intel 16550 UART)
-            return uart_read(address);
+            return bus_read_response8(uart_read(address));
         }
         default:
             gpio_put(ISA_PIN, 0);
-            return 0xFF;
+            return 0x00FF0000u; // Нулевая маска освобождает линии данных.
     }
 }
 
@@ -234,20 +235,20 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
 }
 
 // ============================================================================
-// Port Read (16-bit)
+// Port Read (16-bit data + PIO direction mask)
 // ============================================================================
-__force_inline static uint16_t port_read(const uint32_t address, const bool bhe) {
+__force_inline static uint32_t port_read(const uint32_t address, const bool bhe) {
     // Оптимизация: проверяем A0 и BHE для выбора 8/16-битного пути
     const uint8_t a0 = (address & 1) << 3;
 
-    const uint8_t byte = port_read8(address);
+    const uint32_t byte = port_read8(address);
 
     // BHE=0, A0=0 -> 16-битная операция word (оба байта)
     if (unlikely(!bhe && !a0)) {
         return byte | (port_read8(address + bhe) << 8);
     }
 
-    return byte << a0;
+    return byte << a0; // Сдвигаем данные и маску направлений вместе.
 
     // BHE=1, A0=1 -> невалидная комбинация (не используется в i8086)
     // return 0xFFFF;A

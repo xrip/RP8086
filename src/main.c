@@ -44,14 +44,15 @@ static inline void pic_init(void) {
     static constexpr uint32_t cpu_frequencies[] = {1000, 4750, 6000};
     const uint32_t cpu_freq = cpu_frequencies[settings.cpu_freq_index];
 
+    // Отключить ISA до запуска обработчиков шины и i8086.
+    gpio_init(ISA_PIN);
+    gpio_put(ISA_PIN, 1);
+    gpio_set_dir(ISA_PIN, GPIO_OUT);
+
     start_cpu_clock(cpu_freq); // Start i8086 clock generator
     pic_init(); // Initialize interrupt controller and start Core1 IRQ generator
     cpu_bus_init(); // Initialize bus BEFORE releasing i8086 from reset
     reset_cpu(); // Now i8086 can safely start
-
-    gpio_init(ISA_PIN);
-    gpio_set_dir(ISA_PIN, GPIO_OUT);
-    gpio_put(ISA_PIN, 1); // По умолчанию HI
 
     while (true) {
         // Управление сигналом INTR

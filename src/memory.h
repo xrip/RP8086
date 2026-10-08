@@ -25,40 +25,40 @@ __always_inline static void write_to(uint8_t *destination, const uint32_t addres
 }
 
 // ============================================================================
-// Memory Read (16-bit)
+// Memory Read (16-bit data + PIO direction mask)
 // ============================================================================
-__force_inline static uint16_t memory_read(const uint32_t address) {
+__force_inline static uint32_t memory_read(const uint32_t address) {
     if (address < RAM_SIZE) {
-        return *(uint16_t *)&RAM[address];
+        return bus_read_response16(*(uint16_t *)&RAM[address]);
     }
 
     if ((address - 0xB8000) < 0x8000) {
-        return *(uint16_t *)&VIDEORAM[address & 0x7FFF];
+        return bus_read_response16(*(uint16_t *)&VIDEORAM[address & 0x7FFF]);
     }
 
     if ((address - 0xC8000) < 8192) {
-        return *(uint16_t *)&IDE[address - 0xC8000];
+        return bus_read_response16(*(uint16_t *)&IDE[address - 0xC8000]);
     }
 
     // if ((address - 0xD0000) < UMB_SIZE) {
-        // return *(uint16_t *)&UMB[address - 0xD0000];
+        // return bus_read_response16(*(uint16_t *)&UMB[address - 0xD0000]);
     // }
 
     if (address == 0xFC000 && settings.tandy_enabled) {
-        return 0x21; // Tandy signature
+        return bus_read_response16(0x21); // Tandy signature
     }
 
     if (address >= BIOS_ROM_BASE) {
         // Патчим предпоследний байт BIOS для Tandy режима
         if (unlikely(address == 0xFFFFE && settings.tandy_enabled)) {
-            return 0xFF; // TODO: IBM PC Jr = 0xFD, Tandy 1000 = 0xFF
+            return bus_read_response16(0xFF); // TODO: IBM PC Jr = 0xFD, Tandy 1000 = 0xFF
         }
-        return *(uint16_t *)&BIOS[address - BIOS_ROM_BASE];
+        return bus_read_response16(*(uint16_t *)&BIOS[address - BIOS_ROM_BASE]);
     }
 
     // Unmapped memory
     gpio_put(ISA_PIN, 0);
-    return 0xFFFF;
+    return 0xFFFF0000u; // Маска 0: данные выставляет внешнее устройство.
 }
 
 // ============================================================================

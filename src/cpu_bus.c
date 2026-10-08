@@ -11,7 +11,7 @@ static uint16_t irq_pending_vector = 0;
 // Bus Read/Write Routing (маршрутизация между memory и ports)
 // ============================================================================
 
-__force_inline static uint16_t i8086_read(const uint32_t address, const bool is_memory_access, const bool bhe) {
+__force_inline static uint32_t i8086_read(const uint32_t address, const bool is_memory_access, const bool bhe) {
     gpio_put(ISA_PIN, 1);
     return is_memory_access ? memory_read(address  & 0xFFFFE) : port_read(address & 0xFFF, bhe);
 }
@@ -34,6 +34,7 @@ void __time_critical_func(bus_write_handler)() {
 void __time_critical_func(bus_read_handler)() {
     // INTA cycle проверяем первым (более редкий, но высокоприоритетный)
     if (unlikely(pio_interrupt_get(BUS_CTRL_PIO, 3))) {
+        gpio_put(ISA_PIN, 1); // Вектор прерывания выдаёт внутренний PIC
         pio_interrupt_clear(BUS_CTRL_PIO, 3);
         const uint8_t vector = i8259_nextirq();
         if (vector) {
@@ -46,10 +47,11 @@ void __time_critical_func(bus_read_handler)() {
     const uint32_t bus_state = BUS_CTRL_PIO->rxf[BUS_CTRL_SM];
 
     if (unlikely(irq_pending_vector)) {
-        BUS_CTRL_PIO->txf[BUS_CTRL_SM] = irq_pending_vector << 16 | 0x00FF;
+        BUS_CTRL_PIO->txf[BUS_CTRL_SM] = (uint32_t) irq_pending_vector << 16 | 0x00FF;
         irq_pending_vector = 0;
     } else {
-        BUS_CTRL_PIO->txf[BUS_CTRL_SM] = i8086_read(bus_state, bus_state & MIO, bus_state & BHE) << 16 | 0xFFFF;
+        // Обработчик уже вернул данные и маску направлений; GPIO читать не нужно.
+        BUS_CTRL_PIO->txf[BUS_CTRL_SM] = i8086_read(bus_state, bus_state & MIO, bus_state & BHE);
     }
 
     pio_interrupt_clear(BUS_CTRL_PIO, 1);
