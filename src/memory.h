@@ -32,9 +32,11 @@ __force_inline static uint32_t memory_read(const uint32_t address) {
         return bus_read_response16(*(uint16_t *)&RAM[address]);
     }
 
+#if BUILTIN_VIDEO
     if ((address - 0xB8000) < 0x8000) {
         return bus_read_response16(*(uint16_t *)&VIDEORAM[address & 0x7FFF]);
     }
+#endif
 
     if ((address - 0xC8000) < 8192) {
         return bus_read_response16(*(uint16_t *)&IDE[address - 0xC8000]);
@@ -70,10 +72,12 @@ __force_inline static void memory_write(const uint32_t address, const uint16_t d
         return;
     }
 
+#if BUILTIN_VIDEO
     if ((address - 0xB8000) < 0x8000) {
         write_to(VIDEORAM, address & 0x7FFF, data, bhe);
         return;
     }
+#endif
 
     // if ((address - 0xD0000) < UMB_SIZE) {
         // write_to(UMB, address - 0xD0000, data, bhe);

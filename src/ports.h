@@ -32,6 +32,7 @@ __force_inline static uint32_t port_read8(const uint32_t address) {
     // if (address >= 0x300)
     // printf("port read %03x\n", address);
     switch (address) {
+#if BUILTIN_VIDEO
         case 0x3D4:
             return bus_read_response8(crtc_index);
         case 0x3D5:
@@ -42,6 +43,7 @@ __force_inline static uint32_t port_read8(const uint32_t address) {
             return bus_read_response8(cga.port3D9);
         case 0x3DA: // MC6845 status port
             return bus_read_response8(port3DA);
+#endif
         case 0 ... 0x0F: {
             return bus_read_response8(i8237_readport(address));
         }
@@ -61,7 +63,9 @@ __force_inline static uint32_t port_read8(const uint32_t address) {
             if (port61 & 0x8) {
                 r |= 1 << 2; // 2 FDD
                 // r |= 0b01; // CGA 40x25
+#if BUILTIN_VIDEO
                 r |= 0b10; // CGA 80x25
+#endif
                 //r |= 0b11; // MdA
             } else {
                 r |= 0x4;
@@ -155,6 +159,7 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
             return ide_write(address, data);
         }
 
+#if BUILTIN_VIDEO
         case 0x3B0:
         case 0x3B2:
         case 0x3B4:
@@ -222,6 +227,7 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
             // Why Prince Writes here instead of 3da???
             // printf("3DE: Tandy video write %x %x\n", tga_index, data);
         }
+#endif
         case 0x3F2: case 0x3F5: {
             return i8272_writeport(address, data);
         }
