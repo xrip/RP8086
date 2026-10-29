@@ -39,11 +39,16 @@ __force_inline static uint16_t i8253_get_current_count(const i8253_channel_s *ch
 __force_inline static uint8_t i8253_read(const uint16_t port_number) {
     i8253_channel_s *channel = &i8253.channels[port_number & 3];
 
-    const uint16_t value = i8253_get_current_count(channel);
+    // Latch сохраняется до чтения всех байтов в запрограммированном формате.
+    const uint16_t value = channel->latch_mode
+        ? channel->latched_value
+        : i8253_get_current_count(channel);
     switch (channel->access_mode) {
         case PIT_MODE_LOBYTE:
+            channel->latch_mode = 0;
             return value;
         case PIT_MODE_HIBYTE:
+            channel->latch_mode = 0;
             return value >> 8;
         case PIT_MODE_TOGGLE:
             if (channel->byte_toggle == 0) {
@@ -52,6 +57,7 @@ __force_inline static uint8_t i8253_read(const uint16_t port_number) {
             }
 
             channel->byte_toggle ^= 1;
+            channel->latch_mode = 0;
             return value >> 8;
             break;
         default:
