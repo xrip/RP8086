@@ -70,6 +70,7 @@ __force_inline static uint32_t port_read8(const uint32_t address) {
             } else {
                 r |= 0x4;
             }
+            r |= (uint8_t)(i8253_out2() << 5); // IBM XT 8255 Port C, timer OUT2
             return bus_read_response8(r);
         }
         case 0x64: {
@@ -129,11 +130,10 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
         }
         case 0x61: {
             // System Control Port B (8255 PPI Port B)
-            if ((data & 3) == 3) {
-                pwm_set_gpio_level(BEEPER_PIN, 127);
-            } else {
-                pwm_set_gpio_level(BEEPER_PIN, 0);
-            }
+            const uint32_t period = i8253.channels[2].reload_value
+                ? i8253.channels[2].reload_value : 65536u;
+            const uint32_t pwm_period = (period + 1u) >> 1;
+            pwm_set_gpio_level(BEEPER_PIN, (data & 3) == 3 ? pwm_period / 2u : 0u);
 
             // Бит 7: Clear keyboard (IBM PC XT standard)
             if ((data & 0x80) && !(port61 & 0x80)) {
@@ -251,7 +251,7 @@ __force_inline static uint32_t port_read(const uint32_t address, const bool bhe)
 
     // BHE=0, A0=0 -> 16-битная операция word (оба байта)
     if (unlikely(!bhe && !a0)) {
-        return byte | (port_read8(address + bhe) << 8);
+        return byte | (port_read8(address + 1u) << 8);
     }
 
     return byte << a0; // Сдвигаем данные и маску направлений вместе.

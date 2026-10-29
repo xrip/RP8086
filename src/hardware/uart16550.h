@@ -183,8 +183,9 @@ __force_inline static void uart_write(const uint32_t port, const uint8_t data) {
                 uart.divisor = (uart.divisor & 0x00FF) | (data << 8);
                 return;
             }
-            // DLAB=0: устанавливаем IER
+            // DLAB=0: enabling RX IRQ must also report data already in RBR.
             uart.ier = data;
+            if (uart.data_ready && (data & 1u)) i8259_interrupt(4);
             return;
         }
 
@@ -212,11 +213,12 @@ __force_inline static void uart_write(const uint32_t port, const uint8_t data) {
             const bool rts_rising = (!(old_mcr & 0x02)) && (data & 0x02);
             const bool dtr_rising = (!(old_mcr & 0x01)) && (data & 0x01);
 
-            if (/*is_usb_mouse_connected() && */(rts_rising || dtr_rising)) {
-                // Отправляем идентификатор Microsoft Serial Mouse (2-button)
-                // "M" = ASCII 0x4D
+#if !defined(DEBUG)
+            if (is_usb_mouse_connected() && (rts_rising || dtr_rising)) {
+                // Microsoft Serial Mouse identification after RTS/DTR assertion.
                 uart_write_byte('M');
             }
+#endif
             return;
         }
 

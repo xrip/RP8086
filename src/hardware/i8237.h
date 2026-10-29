@@ -83,13 +83,9 @@ __force_inline static void i8237_writeport(const uint16_t port_number, const uin
             byte_flipflop ^= 1;
             break;
         }
-        case DMA_COMMAND_REGISTER: //DMA channel 0-3 command register
-            // memory_to_memory_enabled = data & 1;
-            // Bit 5: Auto-initialize enable (affects ALL channels!)
-            for (int i = 0; i < DMA_CHANNELS; i++) {
-                dma_channels[i].auto_init = (data >> 5) & 1;
-            }
-            debug_log("DMA COMMAND: mem2mem=%d, auto_init=%d\n", memory_to_memory_enabled, (data >> 5) & 1);
+        case DMA_COMMAND_REGISTER: // 8237 command register (PC/XT)
+            // Bit 5 is extended-write timing, NOT auto-init. Channel auto-init
+            // is controlled only by MODE_REGISTER bit 4.
             break;
         case DMA_REQUEST_REGISTER: //DMA request register
             debug_log("DMA CH%d DREQ=%d\n", data & 3, (data >> 2) & 1);
@@ -100,14 +96,7 @@ __force_inline static void i8237_writeport(const uint16_t port_number, const uin
             const uint8_t channel = data & 3;
             const bool mask = (data >> 2) & 1;
 
-            // При unmask (0→1 transition) копируем reload → current
-            if (dma_channels[channel].masked && !mask) {
-                dma_channels[channel].address = dma_channels[channel].reload_address;
-                dma_channels[channel].count = dma_channels[channel].reload_count;
-                    debug_log("[%llu] DMA UNMASK: CH%d address=0x%04X, count=0x%04X (reload→current)\n",
-                          get_absolute_time(), channel, dma_channels[channel].address, dma_channels[channel].count);
-            }
-
+            // Unmask does not reload address/count on a real 8237.
             dma_channels[channel].masked = mask;
             break;
         }
@@ -141,14 +130,7 @@ __force_inline static void i8237_writeport(const uint16_t port_number, const uin
             for (int channel = 0; channel < 4; channel++) {
                 const bool mask = (data >> channel) & 1;
 
-                // При unmask копируем reload → current
-                if (dma_channels[channel].masked && !mask) {
-                    dma_channels[channel].address = dma_channels[channel].reload_address;
-                    dma_channels[channel].count = dma_channels[channel].reload_count;
-                        debug_log("DMA UNMASK (0x0F): CH%d address=0x%04X, count=0x%04X (reload→current)\n", channel,
-                               dma_channels[channel].address, dma_channels[channel].count);
-                }
-
+                // Unmask does not reload current address/count.
                 dma_channels[channel].masked = mask;
             }
             break;
@@ -166,10 +148,10 @@ __force_inline static void i8237_writepage(const uint16_t port_number, const uin
             channel = 3;  // Channel 3 page register
             break;
         case 0x83:
-            channel = 0;  // Channel 0 page register
+            channel = 1;  // IBM PC DMA1 page register
             break;
         case 0x87:
-            channel = 1;  // Channel 1 page register
+            channel = 0;  // DMA0 page (AT compatible; XT refresh needs no page)
             break;
         default:
             return;
@@ -209,18 +191,13 @@ __force_inline static uint8_t i8237_readport(const uint16_t port_number) {
             break;
         }
         case 0x08: {
-            //status register
-            // Bits 0-3: DMA request status for channels 0-3
-            // Bits 4-7: Terminal Count reached for channels 0-3
+            // Intel 8237: bits 0..3 = latched TC; bits 4..7 = request.
+            // Reading clears TC bits, but not request bits.
             register_value = 0;
-            for (int channel = 0; channel < 4; channel++) {
-                if (dma_channels[channel].dreq) {
-                    register_value |= 1 << channel;  // DREQ status
-                }
-                if (dma_channels[channel].finished) {
-                    register_value |= 1 << (channel + 4);  // TC status
-                    dma_channels[channel].finished = 0;  // Clear TC flag on read (per Intel 8237A spec)
-                }
+            for (int channel = 0; channel < DMA_CHANNELS; channel++) {
+                register_value |= (uint8_t)(dma_channels[channel].dreq << (channel + 4));
+                register_value |= (uint8_t)(dma_channels[channel].finished << channel);
+                dma_channels[channel].finished = 0;
 
                 debug_log("[%llu] CH%i DMA STATUS READ: 0x%02X (DREQ=0x%01X, TC=0x%01X)\n",
       get_absolute_time(), channel, register_value, register_value & 0x0F, (register_value >> 4) & 0x0F);
@@ -241,10 +218,10 @@ __force_inline static uint8_t i8237_readpage(const uint16_t port_number) {
             channel = 3;  // Channel 3 page register
             break;
         case 0x83:
-            channel = 0;  // Channel 0 page register
+            channel = 1;  // IBM PC DMA1 page register
             break;
         case 0x87:
-            channel = 1;  // Channel 1 page register
+            channel = 0;  // DMA0 page (AT compatible)
             break;
         default:
             return 0xFF;
@@ -252,17 +229,14 @@ __force_inline static uint8_t i8237_readpage(const uint16_t port_number) {
     return (uint8_t) (dma_channels[channel].page >> 16);
 }
 
-__force_inline void update_count(dma_channel_s *channel, const uint16_t count) {
-    // Сохраняем старое значение для проверки underflow (terminal count)
-    const uint16_t old_count = channel->count;
+__force_inline void update_count(dma_channel_s *channel, const uint32_t count) {
+    // The 8237 count register contains N-1, so 0xFFFF means 65536 bytes.
+    const uint32_t remaining = (uint32_t)channel->count + 1u;
+    const uint32_t transferred = count < remaining ? count : remaining;
+    channel->address = (channel->address + channel->address_increase * transferred) & 0xFFFFu;
+    channel->count = (uint16_t)(channel->count - transferred);
 
-    // Обновляем адрес (16-битная арифметика с оборачиванием!) и count
-    channel->address = (channel->address + channel->address_increase * count) & 0xFFFF;
-    channel->count -= count;
-
-    // Terminal count: произошел underflow (count обернулся через 0x0000 → 0xFFFF)
-    // Проверка: если новое значение больше старого в беззнаковой арифметике
-    if (channel->count > old_count) {
+    if (transferred && transferred == remaining) {
         // КРИТИЧНО: Устанавливаем флаг Terminal Count для Status Register (bit 4-7)
         channel->finished = 1;
 
