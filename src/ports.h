@@ -226,6 +226,7 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
             cga.updated = true;
             // Why Prince Writes here instead of 3da???
             // printf("3DE: Tandy video write %x %x\n", tga_index, data);
+            return;
         }
 #endif
         case 0x3F2: case 0x3F5: {

@@ -594,7 +594,7 @@ Edit `i8086_bus.pio` carefully - timing-sensitive:
 - **'V'**: Video RAM dump (contents of VRAM at 0xB8000)
 - **'R'**: Reset CPU
 - **'B'**: Reboot RP2350B to bootloader mode
-- **'C'**: Toggle CTTY mode (direct COM1/USB terminal, disables video)
+- **'C'**: CTTY mode: terminal ↔ COM1, Ctrl+] exits. With `BUILTIN_VIDEO=0` it turns on by itself at the first COM1 output (DOS `CTTY COM1`)
 - **'P'**: Dump CGA/CRTC register values
 
 **Regular input:**

@@ -50,7 +50,7 @@ extern uart_16550_s uart;
 
 // ============================================================================
 // uart_write_byte - Запись байта в UART RBR (для эмуляции входящих данных)
-// Используется для Microsoft Serial Mouse protocol
+// Используется для Microsoft Serial Mouse protocol и ввода CTTY (DEBUG)
 // ============================================================================
 __force_inline static void uart_write_byte(const uint8_t data) {
     // Вычисляем следующую позицию head
@@ -71,6 +71,12 @@ __force_inline static void uart_write_byte(const uint8_t data) {
     }
     // Если FIFO переполнен - молча игнорируем (эмуляция overrun)
 }
+
+#ifdef DEBUG
+__force_inline static bool uart_tx_full(void) {
+    return (uint8_t) (uart.tx_head + 1) == uart.tx_tail;
+}
+#endif
 
 
 // ============================================================================
@@ -135,7 +141,10 @@ __force_inline static uint8_t uart_read(const uint32_t port) {
             // Bit 0: Data Ready (есть данные для чтения)
             // Bit 5: THR Empty (можно писать)
             // Bit 6: Transmitter Empty (полностью свободен)
-            uint8_t lsr = LSR_THR_EMPTY | LSR_TRANSMITTER_EMPTY; // Всегда готов к передаче
+            uint8_t lsr = LSR_THR_EMPTY | LSR_TRANSMITTER_EMPTY; // Готов к передаче
+#ifdef DEBUG
+            if (uart_tx_full()) lsr = 0; // INT 14h подождет, пока Core0 выведет буфер
+#endif
             if (uart.data_ready) {
                 lsr |= LSR_DATA_READY; // Есть данные для чтения
             }
@@ -172,7 +181,14 @@ __force_inline static void uart_write(const uint32_t port, const uint8_t data) {
             }
             // DLAB=0: отправляем байт в USB терминал
             uart.thr = data;
-            // putchar_raw(data); // Немедленный вывод в USB
+#ifdef DEBUG
+            // Из IRQ шины stdio вызывать нельзя - кладем в буфер, Core0 выведет сам
+            if (!uart_tx_full()) {
+                uart.tx_fifo[uart.tx_head] = data;
+                __dmb(); // байт виден Core0 раньше нового tx_head
+                uart.tx_head++;
+            }
+#endif
             return;
         }
 

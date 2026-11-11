@@ -156,6 +156,13 @@ typedef struct {
     uint8_t rx_fifo[16];   // Приемный FIFO (достаточно для нескольких mouse packets)
     uint8_t rx_head;       // Индекс головы (куда писать)
     uint8_t rx_tail;       // Индекс хвоста (откуда читать)
+
+#ifdef DEBUG
+    // Буфер передачи COM1 -> USB терминал: пишет Core1 (шина), читает Core0 (debug_console)
+    uint8_t tx_fifo[256];  // 256 - индексы uint8_t переполняются сами
+    volatile uint8_t tx_head; // Куда писать (Core1)
+    volatile uint8_t tx_tail; // Откуда читать (Core0)
+#endif
 } uart_16550_s;
 
 // Consolidated controller state for tighter locality; align to cache line for fast access

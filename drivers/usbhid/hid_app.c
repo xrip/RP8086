@@ -33,6 +33,7 @@ static hid_keyboard_report_t prev_report = {0, 0, {0}};
 // 5. DOS драйвер распознает Microsoft Serial Mouse
 
 static bool usb_mouse_connected = false;
+extern uint8_t current_scancode; // XT port 60h output buffer, cleared by port 61h ack
 
 static queue_t keyboard_queue;
 void keyboard_init(void) {
@@ -62,6 +63,8 @@ __force_inline static void kbd_add_sequence(const uint8_t *sequence) {
 // Конвертирует USB HID keycode в XT scancode и добавляет в очередь
 // is_release: 0 = make code (нажатие), 1 = break code (отпускание)
 static void kbd_raw_key(int usb_code, int is_release) {
+    // HID can report codes outside the conversion table.
+    if ((unsigned)usb_code >= sizeof(conversion) / sizeof(conversion[0])) return;
     const uint8_t *sequence = (const uint8_t*)conversion[usb_code].d[is_release];
     kbd_add_sequence(sequence);
 }
@@ -230,7 +233,9 @@ void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t instance) {
 void keyboard_tick(void) {
     tuh_task();
     uint8_t xt_code;
-    if (queue_try_remove(&keyboard_queue, &xt_code)) {
+    // XT keyboard data must remain available at port 60h until acknowledged
+    // by port 61h bit 7. Do not overwrite an unread scan code.
+    if (!current_scancode && queue_try_remove(&keyboard_queue, &xt_code)) {
         handleScancode(xt_code);
     }
 }

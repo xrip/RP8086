@@ -274,12 +274,25 @@ __force_inline void debug_init() {
     stdio_init_all();
 }
 
-__force_inline void debug_console(const int videomode) {
+#define CTTY_EXIT_KEY 0x1D // Ctrl+]
+
+static __force_inline void debug_console(const int videomode) {
     static bool video_enabled = false;
     static bool ctty_mode = false;
+    static bool ctty_on_com1_output = !BUILTIN_VIDEO; // нет экрана - консоль DOS только через COM1
     static ansi_state_t ansi_state = ANSI_STATE_NORMAL;
     static char ansi_buffer[16];
     static int ansi_buf_len = 0;
+
+    // Вывод COM1 -> USB терминал
+    if (uart.tx_tail != uart.tx_head && ctty_on_com1_output) {
+        ctty_on_com1_output = false;
+        ctty_mode = true;
+    }
+    while (uart.tx_tail != uart.tx_head) {
+        putchar_raw(uart.tx_fifo[uart.tx_tail]);
+        uart.tx_tail++;
+    }
 
     // Рендеринг видео
     if (video_enabled && videomode <= TEXTMODE_80x25_COLOR) {
@@ -302,44 +315,53 @@ __force_inline void debug_console(const int videomode) {
     if (c == PICO_ERROR_TIMEOUT) return;
 
     // ═══════════════════════════════════════════════════════════════
+    // CTTY: все байты в COM1 (спецкоманды не перехватываются)
+    // ═══════════════════════════════════════════════════════════════
+    if (ctty_mode) {
+        if (c == CTTY_EXIT_KEY) {
+            ctty_mode = false;
+            video_enabled = BUILTIN_VIDEO;
+            printf("\033[2J\033[H");
+        } else {
+            uart_write_byte((uint8_t) c);
+        }
+        return;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     // Обработка ANSI state machine
     // ═══════════════════════════════════════════════════════════════
     if (ansi_state != ANSI_STATE_NORMAL) {
-        if (ctty_mode) {
-            uart.rbr = (uint8_t) c;
-            uart.data_ready = true;
-        } else {
-            switch (ansi_state) {
-                case ANSI_STATE_ESC:
+        switch (ansi_state) {
+            case ANSI_STATE_ESC:
+                ansi_state = ANSI_STATE_NORMAL;
+                if (c == '[') { ansi_state = ANSI_STATE_CSI; ansi_buf_len = 0; }
+                else if (c == 'O') { ansi_state = ANSI_STATE_SS3; }
+                else if (c == 0x1B) { send_scancode_with_delay(SCANCODE_ESC); }
+                else { process_alt_sequence(c); }
+                break;
+
+            case ANSI_STATE_SS3:
+                process_ss3_sequence((char)c);
+                ansi_state = ANSI_STATE_NORMAL;
+                break;
+
+            case ANSI_STATE_CSI:
+                if (ansi_buf_len < (int)sizeof(ansi_buffer) - 1) {
+                    ansi_buffer[ansi_buf_len++] = (char)c;
+                }
+                if ((c >= 'A' && c <= 'Z') || c == '~') {
+                    ansi_buffer[ansi_buf_len] = '\0';
+                    process_ansi_sequence(ansi_buffer, ansi_buf_len);
                     ansi_state = ANSI_STATE_NORMAL;
-                    if (c == '[') { ansi_state = ANSI_STATE_CSI; ansi_buf_len = 0; }
-                    else if (c == 'O') { ansi_state = ANSI_STATE_SS3; }
-                    else if (c == 0x1B) { send_scancode_with_delay(SCANCODE_ESC); }
-                    else { process_alt_sequence(c); }
-                    break;
-
-                case ANSI_STATE_SS3:
-                    process_ss3_sequence((char)c);
+                    ansi_buf_len = 0;
+                } else if (ansi_buf_len >= (int)sizeof(ansi_buffer) - 1) {
                     ansi_state = ANSI_STATE_NORMAL;
-                    break;
+                    ansi_buf_len = 0;
+                }
+                break;
 
-                case ANSI_STATE_CSI:
-                    if (ansi_buf_len < (int)sizeof(ansi_buffer) - 1) {
-                        ansi_buffer[ansi_buf_len++] = (char)c;
-                    }
-                    if ((c >= 'A' && c <= 'Z') || c == '~') {
-                        ansi_buffer[ansi_buf_len] = '\0';
-                        process_ansi_sequence(ansi_buffer, ansi_buf_len);
-                        ansi_state = ANSI_STATE_NORMAL;
-                        ansi_buf_len = 0;
-                    } else if (ansi_buf_len >= (int)sizeof(ansi_buffer) - 1) {
-                        ansi_state = ANSI_STATE_NORMAL;
-                        ansi_buf_len = 0;
-                    }
-                    break;
-
-                default: break;
-            }
+            default: break;
         }
         return;
     }
@@ -350,14 +372,9 @@ __force_inline void debug_console(const int videomode) {
     if (c == '`') {
         video_enabled = !video_enabled;
     } else if (c == 'C') {
-        ctty_mode = !ctty_mode;
-        printf("\033[2J\033[H");
-        if (ctty_mode) {
-            video_enabled = false;
-            printf("*** CTTY Mode Enabled ***\nPress 'C' again to return to keyboard mode.\n\n");
-        } else {
-            video_enabled = true;
-        }
+        ctty_mode = true;
+        video_enabled = false;
+        printf("\033[2J\033[H*** CTTY Mode Enabled ***\nPress Ctrl+] to return to keyboard mode.\n\n");
     } else if (c == 'R') {
         printf("\033[2JReseting cpu\n");
         gpio_put(INTR_PIN, 0);
@@ -418,16 +435,11 @@ __force_inline void debug_console(const int videomode) {
         }
     } else {
         // Обычный ввод
-        if (ctty_mode) {
-            uart.rbr = (uint8_t) c;
-            uart.data_ready = true;
+        if (c == 0x1B) {
+            ansi_state = ANSI_STATE_ESC;
+            ansi_buf_len = 0;
         } else {
-            if (c == 0x1B) {
-                ansi_state = ANSI_STATE_ESC;
-                ansi_buf_len = 0;
-            } else {
-                send_ascii_as_scancode(c);
-            }
+            send_ascii_as_scancode(c);
         }
     }
 }
