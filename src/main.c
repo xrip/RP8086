@@ -25,7 +25,6 @@ uint8_t videomode = 0;
 repeating_timer_t irq0_timer;
 
 uint8_t current_scancode = 0; // 0 = нет данных
-pwm_config pwm;
 FATFS fs;
 
 static inline void pic_init(void) {
@@ -151,11 +150,9 @@ bool handleScancode(const uint8_t ps2scancode) {
         ide.disk_image = nullptr;
     }
 
-    pwm = pwm_get_default_config();
+    pwm_config pwm = pwm_get_default_config();
     gpio_set_function(BEEPER_PIN, GPIO_FUNC_PWM);
-    // PWM tick ~= 2 * PIT clock; half-size TOP covers all 8253 divisors.
-    pwm_config_set_clkdiv(&pwm, (float)PICO_CLOCK_SPEED / (2.0f * PIT_FREQUENCY));
-    pwm_config_set_wrap(&pwm, 32767u);
+    pwm_config_set_clkdiv(&pwm, (float)PICO_CLOCK_SPEED / (SPEAKER_PWM_TICKS_PER_PIT * PIT_FREQUENCY));
     pwm_init(pwm_gpio_to_slice_num(BEEPER_PIN), &pwm, true);
 
     // Запуск второго ядра с i8086
@@ -172,59 +169,35 @@ bool handleScancode(const uint8_t ps2scancode) {
             if (channel->dreq && !channel->masked) {
                 const uint32_t dest_addr = channel->page + channel->address;
                 const uint32_t size = (uint32_t)channel->count + 1u;
-                const uint32_t first = size < (0x10000u - channel->address)
-                    ? size : (0x10000u - channel->address);
-                const uint32_t second = size - first;
-                const uint32_t wrap_addr = channel->page;
-                const bool memory_source = (channel->data_source_type == DMA_SOURCE_MEM_READ ||
-                                            channel->data_source_type == DMA_SOURCE_MEM_WRITE);
-                if (dest_addr >= RAM_SIZE || first > RAM_SIZE - dest_addr ||
-                    (second && (wrap_addr >= RAM_SIZE || second > RAM_SIZE - wrap_addr)) ||
-                    (memory_source && !channel->data_source) ||
-                    ((channel->data_source_type == DMA_SOURCE_FILE_READ ||
-                      channel->data_source_type == DMA_SOURCE_FILE_WRITE) && channel->file_index >= 2) ||
-                    !(memory_source || channel->data_source_type == DMA_SOURCE_FILE_READ ||
-                      channel->data_source_type == DMA_SOURCE_FILE_WRITE)) {
+                // Только защита PSRAM; через границу 64K BIOS передачу не пускает (ошибка 09h)
+                if (dest_addr + size > RAM_SIZE) {
                     channel->dreq = 0;
-                    channel->masked = 1; // Reject unsafe transfer instead of corrupting PSRAM
+                    channel->masked = 1;
                     continue;
                 }
 
                 size_t br;
                 switch (channel->data_source_type) {
-                    case DMA_SOURCE_MEM_READ: {
-                        const uint8_t *src = (const uint8_t *)channel->data_source + channel->data_offset;
-                        memcpy(&RAM[dest_addr], src, first);
-                        if (second) memcpy(&RAM[wrap_addr], src + first, second);
+                    case DMA_SOURCE_MEM_READ:
+                        memcpy(&RAM[dest_addr], (const uint8_t *)channel->data_source + channel->data_offset, size);
                         break;
-                    }
-                    case DMA_SOURCE_MEM_WRITE: {
-                        uint8_t *dst = (uint8_t *)channel->data_source + channel->data_offset;
-                        memcpy(dst, &RAM[dest_addr], first);
-                        if (second) memcpy(dst + first, &RAM[wrap_addr], second);
+                    case DMA_SOURCE_MEM_WRITE:
+                        memcpy((uint8_t *)channel->data_source + channel->data_offset, &RAM[dest_addr], size);
                         break;
-                    }
                     case DMA_SOURCE_FILE_READ:
                         f_lseek(&floppy_files[channel->file_index], channel->data_offset);
-                        f_read(&floppy_files[channel->file_index], &RAM[dest_addr], first, &br);
-                        if (second) f_read(&floppy_files[channel->file_index], &RAM[wrap_addr], second, &br);
+                        f_read(&floppy_files[channel->file_index], &RAM[dest_addr], size, &br);
                         break;
                     case DMA_SOURCE_FILE_WRITE:
                         f_lseek(&floppy_files[channel->file_index], channel->data_offset);
-                        f_write(&floppy_files[channel->file_index], &RAM[dest_addr], first, &br);
-                        if (second) f_write(&floppy_files[channel->file_index], &RAM[wrap_addr], second, &br);
+                        f_write(&floppy_files[channel->file_index], &RAM[dest_addr], size, &br);
                         break;
                 }
                 update_count(channel, size);
 
-                // Генерируем IRQ если назначен (после завершения передачи!)
-                if (channel->finished) {
-                    channel->dreq = 0;
-
-                    if (channel->irq)
-                        i8259_interrupt(channel->irq);
-                    // printf("DMA CH%i transfer compete from %x to %x size %x, irq %d\n", dma_channels-channel, channel->data_source, dest_addr, size, channel->irq);
-                }
+                channel->dreq = 0;
+                if (channel->irq)
+                    i8259_interrupt(channel->irq);
             }
         }
 

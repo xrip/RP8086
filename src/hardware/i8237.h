@@ -150,9 +150,6 @@ __force_inline static void i8237_writepage(const uint16_t port_number, const uin
         case 0x83:
             channel = 1;  // IBM PC DMA1 page register
             break;
-        case 0x87:
-            channel = 0;  // DMA0 page (AT compatible; XT refresh needs no page)
-            break;
         default:
             return;
     }
@@ -220,37 +217,28 @@ __force_inline static uint8_t i8237_readpage(const uint16_t port_number) {
         case 0x83:
             channel = 1;  // IBM PC DMA1 page register
             break;
-        case 0x87:
-            channel = 0;  // DMA0 page (AT compatible)
-            break;
         default:
             return 0xFF;
     }
     return (uint8_t) (dma_channels[channel].page >> 16);
 }
 
-__force_inline void update_count(dma_channel_s *channel, const uint32_t count) {
-    // The 8237 count register contains N-1, so 0xFFFF means 65536 bytes.
-    const uint32_t remaining = (uint32_t)channel->count + 1u;
-    const uint32_t transferred = count < remaining ? count : remaining;
-    channel->address = (channel->address + channel->address_increase * transferred) & 0xFFFFu;
-    channel->count = (uint16_t)(channel->count - transferred);
+// Передача всегда идет целиком (size = count + 1), поэтому в конце всегда Terminal Count.
+__force_inline void update_count(dma_channel_s *channel, const uint32_t size) {
+    channel->address = (channel->address + channel->address_increase * size) & 0xFFFFu;
+    channel->count = 0xFFFF; // счетчик 8237 после Terminal Count
+    channel->finished = 1;   // TC для Status Register
 
-    if (transferred && transferred == remaining) {
-        // КРИТИЧНО: Устанавливаем флаг Terminal Count для Status Register (bit 4-7)
-        channel->finished = 1;
-
-        if (channel->auto_init) {
-            // Auto-init: перезагрузка из reload registers
-            channel->count = channel->reload_count;
-            channel->address = channel->reload_address;
-                debug_log("[%llu] DMA AUTO-INIT: CH2 address=0x%04X, count=0x%04X (reload→current), TC flag set\n",
-                      get_absolute_time(), channel->address, channel->count);
-        } else {
-            // Terminal count без auto-init: маскируем канал
-            channel->masked = 1;
-                debug_log("[%llu] DMA TERMINAL COUNT: CH2 masked, TC flag set\n",get_absolute_time());
-        }
+    if (channel->auto_init) {
+        // Auto-init: перезагрузка из reload registers
+        channel->count = channel->reload_count;
+        channel->address = channel->reload_address;
+            debug_log("[%llu] DMA AUTO-INIT: CH2 address=0x%04X, count=0x%04X (reload→current), TC flag set\n",
+                  get_absolute_time(), channel->address, channel->count);
+    } else {
+        // Terminal count без auto-init: маскируем канал
+        channel->masked = 1;
+            debug_log("[%llu] DMA TERMINAL COUNT: CH2 masked, TC flag set\n",get_absolute_time());
     }
 }
 

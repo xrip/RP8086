@@ -58,9 +58,8 @@ __force_inline static void i8259_write(const uint16_t port_number, const uint8_t
                     // i8259.initialization_command_words[2] = register_value;
                     i8259.interrupt_vector_offset = data & 0xF8;
                     if (i8259.initialization_command_words_1 & 0x02) {
-                        // IBM PC/XT: single PIC, ICW3 omitted.
-                        i8259.initialization_command_word_step =
-                            (i8259.initialization_command_words_1 & 0x01) ? 4 : 5;
+                        // IBM PC/XT: один PIC, ICW3 нет; ICW4 есть всегда (режим 8086)
+                        i8259.initialization_command_word_step = 4;
                     } else {
                         i8259.initialization_command_word_step = 3;
                     }
@@ -96,7 +95,6 @@ __force_inline static uint8_t i8259_get_pending_irqs() {
 }
 
 __force_inline static void i8259_interrupt(const uint8_t irq) {
-    if (irq >= 8u) return;
     __atomic_fetch_or(&i8259.interrupt_request_register, (uint8_t)(1u << irq), __ATOMIC_RELAXED);
     __sev(); // wake Core1 out of WFE to update INTR
 }

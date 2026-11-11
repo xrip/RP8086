@@ -70,7 +70,6 @@ __force_inline static uint32_t port_read8(const uint32_t address) {
             } else {
                 r |= 0x4;
             }
-            r |= (uint8_t)(i8253_out2() << 5); // IBM XT 8255 Port C, timer OUT2
             return bus_read_response8(r);
         }
         case 0x64: {
@@ -93,8 +92,7 @@ __force_inline static uint32_t port_read8(const uint32_t address) {
         }
         case 0x81:
         case 0x82:
-        case 0x83:
-        case 0x87: {
+        case 0x83: {
             return bus_read_response8(i8237_readpage(address));
         }
         case 0x300 ... 0x308: {
@@ -130,11 +128,6 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
         }
         case 0x61: {
             // System Control Port B (8255 PPI Port B)
-            const uint32_t period = i8253.channels[2].reload_value
-                ? i8253.channels[2].reload_value : 65536u;
-            const uint32_t pwm_period = (period + 1u) >> 1;
-            pwm_set_gpio_level(BEEPER_PIN, (data & 3) == 3 ? pwm_period / 2u : 0u);
-
             // Бит 7: Clear keyboard (IBM PC XT standard)
             if ((data & 0x80) && !(port61 & 0x80)) {
                 current_scancode = 0;
@@ -146,13 +139,13 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
             }
 
             port61 = data;
+            speaker_update();
             return;
         }
 
         case 0x81:
         case 0x82:
-        case 0x83:
-        case 0x87: {
+        case 0x83: {
             return i8237_writepage(address, data);
         }
         case 0x300 ... 0x308: {

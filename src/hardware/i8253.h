@@ -11,7 +11,6 @@
 extern i8253_s i8253;
 extern i8259_s i8259;
 extern uint8_t port61;
-extern pwm_config pwm;
 
 extern repeating_timer_t irq0_timer;
 
@@ -45,16 +44,22 @@ __force_inline static uint16_t i8253_get_current_count(const i8253_channel_s *ch
     return (uint16_t) (reload - 1 - ticks % reload);
 }
 
-// XT PPI port 62h bit 5: physical OUT2 from PIT channel 2, not a DIP switch.
-__force_inline static uint8_t i8253_out2(void) {
-    const i8253_channel_s *ch = &i8253.channels[2];
-    if (!(port61 & 1u) || !ch->active) return 1u;
-    const uint32_t reload = ch->reload_value ? ch->reload_value : 65536u;
-    const uint64_t ticks = ((get_absolute_time() - ch->start_timestamp_us) * PIT_FREQUENCY) / 1000000ULL;
-    const uint32_t phase = (uint32_t)(ticks % reload);
-    const uint32_t high_ticks = ((ch->operating_mode & 7u) == 2u)
-        ? reload - 1u : (reload + 1u) / 2u;
-    return (uint8_t)(phase < high_ticks);
+#define SPEAKER_PWM_TICKS_PER_PIT 2u // делитель PWM ограничен 255, а 504 МГц / PIT = 422
+
+// Динамик PC = OUT2 AND speaker_data; при выключенном GATE2 OUT2 = 1.
+__force_inline static void speaker_update(void) {
+    const bool gate2 = port61 & 1u;
+    const bool speaker_data = port61 & 2u;
+    const uint slice = pwm_gpio_to_slice_num(BEEPER_PIN);
+    if (gate2 && speaker_data) { // меандр канала 2
+        const uint32_t count = i8253.channels[2].reload_value ? i8253.channels[2].reload_value : 65536u;
+        const uint32_t ticks = MIN(count * SPEAKER_PWM_TICKS_PER_PIT, 65536u); // ниже ~36 Гц не влезает в 16 бит
+        pwm_set_wrap(slice, (uint16_t) (ticks - 1u));
+        pwm_set_gpio_level(BEEPER_PIN, (uint16_t) (ticks / 2u));
+    } else { // постоянный уровень: так игры выводят звук битом 1
+        pwm_set_wrap(slice, 0);
+        pwm_set_gpio_level(BEEPER_PIN, speaker_data);
+    }
 }
 
 __force_inline static uint8_t i8253_read(const uint16_t port_number) {
@@ -120,11 +125,7 @@ __force_inline static void i8253_write(const uint16_t port_number, const uint8_t
             add_repeating_timer_us(-timer_interval, irq0_timer_callback, &channel->operating_mode, &irq0_timer);
 
         } else if (channel_index == 2) {
-            const uint32_t count = channel->reload_value ? channel->reload_value : 65536u;
-            const uint16_t pwm_period = (uint16_t)((count + 1u) >> 1);
-            pwm_config_set_wrap(&pwm, (uint16_t)(pwm_period - 1u));
-            pwm_init(pwm_gpio_to_slice_num(BEEPER_PIN), &pwm, true);
-            pwm_set_gpio_level(BEEPER_PIN, (port61 & 3) == 3 ? pwm_period / 2u : 0u);
+            speaker_update();
         }
     } else {
         // Запись Control Word (порт 0x43)
