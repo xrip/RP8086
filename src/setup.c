@@ -306,7 +306,7 @@ void setup_menu(void) {
 
     char title[TEXTMODE_COLS + 1];
     char footer[TEXTMODE_COLS + 1];
-    snprintf(title, sizeof(title), "RP8086 SETUP v1.0");
+    snprintf(title, sizeof(title), "RP8086 SETUP v1.0  %s %s", PICO_GIT_BRANCH, PICO_GIT_COMMIT);
 
     uint8_t current = 1; // first editable item
     bool running = true;

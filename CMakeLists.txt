@@ -137,6 +137,10 @@ execute_process(
         OUTPUT_VARIABLE GIT_COMMIT_HASH
         OUTPUT_STRIP_TRAILING_WHITESPACE
 )
+set(GIT_HEAD_LOG "${CMAKE_SOURCE_DIR}/.git/logs/HEAD") # меняется при каждом коммите / pull
+if (EXISTS "${GIT_HEAD_LOG}")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${GIT_HEAD_LOG}")
+endif ()
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE
         PICO_BUILD_NAME="${BUILD_NAME}"
