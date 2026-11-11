@@ -46,10 +46,8 @@
 #define RESET_PIN        28             // Reset output (active HIGH)
 #define CLOCK_PIN        29             // Clock output to i8086
 
-#define ISA_PIN          45             // 0 = цикл шины обслуживает карта на ISA
+#define ISA_PIN          45             // Спад 1->0 выбирает карту на ISA до следующего ALE
 #define BEEPER_PIN        46            // PC Speaker pin
-
-extern bool isa_cycle; // Адрес цикла не эмулируется: отвечает карта на ISA
 
 
 // ============================================================================
@@ -65,6 +63,13 @@ __force_inline static uint32_t bus_read_response8(const uint8_t data) {
 
 __force_inline static uint32_t bus_read_response16(const uint16_t data) {
     return ((uint32_t) data << 16) | 0xFFFFu;
+}
+
+// Обработчик поднимает ISA_PIN в начале цикла; 74LS74 выбора карты (через 74LS04)
+// примет спад, только если 1 держалась >= 25 нс, даже сразу после цикла ISA.
+__force_inline static void isa_select(void) {
+    busy_wait_at_least_cycles(PICO_CLOCK_SPEED / MHZ / 10); // 100 нс
+    gpio_put(ISA_PIN, 0);
 }
 
 
