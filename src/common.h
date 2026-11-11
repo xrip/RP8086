@@ -46,8 +46,10 @@
 #define RESET_PIN        28             // Reset output (active HIGH)
 #define CLOCK_PIN        29             // Clock output to i8086
 
-#define ISA_PIN          45             //
+#define ISA_PIN          45             // 0 = цикл шины обслуживает карта на ISA
 #define BEEPER_PIN        46            // PC Speaker pin
+
+extern bool isa_cycle; // Адрес цикла не эмулируется: отвечает карта на ISA
 
 
 // ============================================================================

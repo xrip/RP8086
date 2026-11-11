@@ -106,7 +106,7 @@ __force_inline static uint32_t port_read8(const uint32_t address) {
             return bus_read_response8(uart_read(address));
         }
         default:
-            gpio_put(ISA_PIN, 0);
+            isa_cycle = true;
             return 0x00FF0000u; // Нулевая маска освобождает линии данных.
     }
 }
@@ -230,7 +230,7 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
             return uart_write(address, data);
         }
             default:
-            gpio_put(ISA_PIN, 0);
+            isa_cycle = true;
     }
 }
 

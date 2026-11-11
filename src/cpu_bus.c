@@ -11,15 +11,21 @@ static uint16_t irq_pending_vector = 0;
 // Bus Read/Write Routing (маршрутизация между memory и ports)
 // ============================================================================
 
+// ISA_PIN меняется один раз за цикл: импульс посреди цикла рвет ISA цикл
+bool isa_cycle;
+
 __force_inline static uint32_t i8086_read(const uint32_t address, const bool is_memory_access, const bool bhe) {
-    gpio_put(ISA_PIN, 1);
-    return is_memory_access ? memory_read(address  & 0xFFFFE) : port_read(address & 0xFFF, bhe);
+    isa_cycle = false;
+    const uint32_t response = is_memory_access ? memory_read(address  & 0xFFFFE) : port_read(address & 0xFFF, bhe);
+    gpio_put(ISA_PIN, !isa_cycle);
+    return response;
 }
 
 __force_inline static void i8086_write(const uint32_t address, const uint16_t data,
                                         const bool is_memory_access, const bool bhe) {
-    gpio_put(ISA_PIN, 1);
-    return is_memory_access ? memory_write(address, data, bhe) : port_write(address, data, bhe);
+    isa_cycle = false;
+    is_memory_access ? memory_write(address, data, bhe) : port_write(address, data, bhe);
+    gpio_put(ISA_PIN, !isa_cycle);
 }
 
 void __time_critical_func(bus_write_handler)() {

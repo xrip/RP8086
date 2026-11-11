@@ -59,7 +59,7 @@ __force_inline static uint32_t memory_read(const uint32_t address) {
     }
 
     // Unmapped memory
-    gpio_put(ISA_PIN, 0);
+    isa_cycle = true;
     return 0xFFFF0000u; // Маска 0: данные выставляет внешнее устройство.
 }
 
@@ -84,6 +84,6 @@ __force_inline static void memory_write(const uint32_t address, const uint16_t d
         // return;
     // }
 
-    gpio_put(ISA_PIN, 0);
+    isa_cycle = true;
     // ROM areas are read-only, ignore writes
 }
