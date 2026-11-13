@@ -26,6 +26,7 @@
 #define I8086_DUTY_CYCLE     (33)          // 33% duty cycle required for i8086
 
 #define BUILTIN_VIDEO        1             // 0 = встроенная CGA/Tandy отключена, видео на внешней карте ISA
+#define ISA_WRITE_WAIT       1             // 1 = запись на ISA держит READY, пока карта не выбрана
 
 #define VIDEORAM_SIZE        (32 * 1024)   // Tandy/PC Jr compat
 #if BUILTIN_VIDEO

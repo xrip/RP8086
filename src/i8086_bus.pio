@@ -64,8 +64,8 @@ WR_cycle:
     nop side 0
     in pins, 16                     ; Захватить данные с AD0-AD15
     push                            ; Отправить данные ARM
-    irq 0                   side 1  ; Прерывание записи. READY=1 (продолжить)
-    wait 1 gpio WR_PIN              ; Дождаться WR=HIGH (конец цикла)
+    irq wait 0                      ; Прерывание записи; READY=0, пока ARM не снимет флаг
+    wait 1 gpio WR_PIN      side 1  ; READY=1, дождаться WR=HIGH (конец цикла)
     jmp wait_ALE                    ; Следующий цикл
 
 INTA_cycle:

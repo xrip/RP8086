@@ -25,10 +25,15 @@ __force_inline static void i8086_write(const uint32_t address, const uint16_t da
 void __time_critical_func(bus_write_handler)() {
     const uint32_t bus_state = BUS_CTRL_PIO->rxf[BUS_CTRL_SM];
     const uint16_t data = BUS_CTRL_PIO->rxf[BUS_CTRL_SM];
+    const uint32_t address = bus_state & 0xFFFFF;
 
-    i8086_write(bus_state & 0xFFFFF, data, bus_state & MIO, bus_state & BHE);
+    // PIO держит READY=0 до снятия флага: ОЗУ отпускаем сразу, остальное после выбора карты ISA
+    const bool release_early = !ISA_WRITE_WAIT || ((bus_state & MIO) && address < RAM_SIZE);
+    if (release_early) pio_interrupt_clear(BUS_CTRL_PIO, 0);
 
-    pio_interrupt_clear(BUS_CTRL_PIO, 0);
+    i8086_write(address, data, bus_state & MIO, bus_state & BHE);
+
+    if (!release_early) pio_interrupt_clear(BUS_CTRL_PIO, 0);
 }
 
 void __time_critical_func(bus_read_handler)() {
